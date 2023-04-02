@@ -3,7 +3,7 @@ MEGA API Rust Client
 
 <!-- [![CI](https://github.com/Hirevo/mega-rs/actions/workflows/ci.yaml/badge.svg)](https://github.com/Hirevo/mega-rs/actions/workflows/ci.yaml) -->
 [![version](https://img.shields.io/crates/v/mega)](https://crates.io/crates/mega)
-[![docs](https://docs.rs/mega/badge.svg)](https://docs.rs/mega)
+[![docs](https://img.shields.io/docsrs/mega)](https://docs.rs/mega)
 [![license](https://img.shields.io/crates/l/mega)](https://github.com/Hirevo/mega-rs#license)
 
 This is an API client library for interacting with MEGA's API using Rust.
