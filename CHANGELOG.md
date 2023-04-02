@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+[0.2.1] - 2023-03-02
+--------------------
+
+### Added
+
+- Added `Client::move_to_rubbish_bin` function
+
+### Fixed
+
+- Fixed an issue where errors could be encountered after some successful operations, like moving or renaming a node.
+
 [0.2.0] - 2023-02-26
 --------------------
 
