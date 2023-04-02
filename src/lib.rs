@@ -869,6 +869,12 @@ impl Client {
         Ok(())
     }
 
+    /// Moves a node to the Rubbish Bin.
+    pub async fn move_to_rubbish_bin(&mut self, hash: &str) -> Result<()> {
+        let rubbish_bin = self.rubbish_bin.clone().ok_or(Error::NodeNotFound)?;
+        self.move_node(hash, rubbish_bin.as_str()).await
+    }
+
     /// Deletes a node.
     pub async fn delete_node(&mut self, hash: &str) -> Result<()> {
         let idempotence_id = utils::random_string(10);
