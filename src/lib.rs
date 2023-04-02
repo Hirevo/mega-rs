@@ -809,15 +809,15 @@ impl Client {
 
         let responses = self.send_requests(&[request]).await?;
 
-        let _ = match responses.as_slice() {
-            [Response::SetFileAttributes(response)] => response,
+        match responses.as_slice() {
+            [Response::Error(ErrorCode::OK)] => {}
             [Response::Error(code)] => {
                 return Err(Error::from(*code));
             }
             _ => {
                 return Err(Error::InvalidResponseType);
             }
-        };
+        }
 
         if let Some(node) = self.nodes.get_mut(hash) {
             node.name = name.to_string();
@@ -838,15 +838,15 @@ impl Client {
 
         let responses = self.send_requests(&[request]).await?;
 
-        let _ = match responses.as_slice() {
-            [Response::Move(response)] => response,
+        match responses.as_slice() {
+            [Response::Error(ErrorCode::OK)] => {}
             [Response::Error(code)] => {
                 return Err(Error::from(*code));
             }
             _ => {
                 return Err(Error::InvalidResponseType);
             }
-        };
+        }
 
         if let Some(node) = self.nodes.get_mut(hash) {
             let maybe_old_parent_hash = node.parent.replace(parent_hash.to_string());
@@ -880,15 +880,15 @@ impl Client {
 
         let responses = self.send_requests(&[request]).await?;
 
-        let _ = match responses.as_slice() {
-            [Response::Delete(response)] => response,
+        match responses.as_slice() {
+            [Response::Error(ErrorCode::OK)] => {}
             [Response::Error(code)] => {
                 return Err(Error::from(*code));
             }
             _ => {
                 return Err(Error::InvalidResponseType);
             }
-        };
+        }
 
         if let Some(node) = self.nodes.remove(hash) {
             if let Some(parent_hash) = node.parent.as_ref() {
