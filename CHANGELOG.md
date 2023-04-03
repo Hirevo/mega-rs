@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added HTTPS usage as a configuration option.
+
 ### Fixed
 
 [0.2.1] - 2023-03-02
@@ -18,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added `Client::move_to_rubbish_bin` function
+- Added `Client::move_to_rubbish_bin` function.
 
 ### Fixed
 

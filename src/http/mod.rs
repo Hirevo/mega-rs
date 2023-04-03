@@ -33,6 +33,11 @@ pub struct ClientState {
     pub(crate) max_retry_delay: Duration,
     /// The timeout duration to use for each request.
     pub(crate) timeout: Option<Duration>,
+    /// Whether to use HTTPS for file downloads and uploads, instead of plain HTTP.
+    ///
+    /// Using plain HTTP for file transfers is fine because the file contents are already encrypted,
+    /// making protocol-level encryption a bit redundant and potentially slowing down the transfer.
+    pub(crate) https: bool,
     /// The request counter, for idempotency.
     pub(crate) id_counter: u64,
     /// The user's session.

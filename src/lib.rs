@@ -37,6 +37,11 @@ pub struct ClientBuilder {
     max_retry_delay: Duration,
     /// The timeout duration to use for each request.
     timeout: Option<Duration>,
+    /// Whether to use HTTPS for file downloads and uploads, instead of plain HTTP.
+    ///
+    /// Using plain HTTP for file transfers is fine because the file contents are already encrypted,
+    /// making protocol-level encryption a bit redundant and potentially slowing down the transfer.
+    pub(crate) https: bool,
 }
 
 impl ClientBuilder {
@@ -48,6 +53,7 @@ impl ClientBuilder {
             min_retry_delay: Duration::from_millis(10),
             max_retry_delay: Duration::from_secs(5),
             timeout: Some(Duration::from_secs(10)),
+            https: false,
         }
     }
 
@@ -81,6 +87,12 @@ impl ClientBuilder {
         self
     }
 
+    /// Sets whether to use HTTPS for file uploads and downloads, instead of plain HTTP.
+    pub fn https(mut self, value: bool) -> Self {
+        self.https = value;
+        self
+    }
+
     /// Builds a [`Client`] instance with the current settings and the specified HTTP client.
     pub fn build<T: HttpClient + 'static>(self, client: T) -> Result<Client> {
         let state = ClientState {
@@ -89,6 +101,7 @@ impl ClientBuilder {
             min_retry_delay: self.min_retry_delay,
             max_retry_delay: self.max_retry_delay,
             timeout: self.timeout,
+            https: self.https,
             id_counter: 0,
             session: None,
         };
@@ -447,7 +460,7 @@ impl Client {
 
         let request = Request::Download {
             g: 1,
-            ssl: 2,
+            ssl: if self.state.https { 2 } else { 0 },
             p: None,
             n: Some(hash.to_string()),
         };
@@ -544,7 +557,10 @@ impl Client {
         size: u64,
         reader: R,
     ) -> Result<()> {
-        let request = Request::Upload { s: size, ssl: 2 };
+        let request = Request::Upload {
+            s: size,
+            ssl: if self.state.https { 2 } else { 0 },
+        };
         let responses = self.send_requests(&[request]).await?;
 
         let response = match responses.as_slice() {
