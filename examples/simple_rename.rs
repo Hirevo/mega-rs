@@ -4,11 +4,7 @@
 
 use std::env;
 
-async fn run(
-    mega: &mut mega::Client,
-    distant_file_path: &str,
-    new_name: &str,
-) -> mega::Result<()> {
+async fn run(mega: &mut mega::Client, distant_file_path: &str, new_name: &str) -> mega::Result<()> {
     mega.fetch_nodes().await?;
 
     let node = mega
