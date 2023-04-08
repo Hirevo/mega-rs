@@ -16,10 +16,11 @@ mod error;
 mod http;
 mod utils;
 
+pub use crate::commands::NodeKind;
 pub use crate::error::{Error, ErrorCode, Result};
 pub use crate::utils::StorageQuotas;
 
-use crate::commands::{NodeKind, Request, Response, UploadAttributes};
+use crate::commands::{Request, Response, UploadAttributes};
 use crate::http::{ClientState, HttpClient, UserSession};
 use crate::utils::FileAttributes;
 
