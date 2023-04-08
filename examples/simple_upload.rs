@@ -16,13 +16,12 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 async fn run(mega: &mut mega::Client, file: &str, folder: &str) -> mega::Result<()> {
     let file_name = Path::new(file).file_name().unwrap().to_str().unwrap();
 
-    mega.fetch_nodes().await?;
+    let nodes = mega.fetch_own_nodes().await?;
 
-    let node = mega
+    let node = nodes
         .get_node_by_path(folder)
         .expect("could not find node by path");
 
-    let hash = node.hash().to_string();
     let file = File::open(file).await?;
     let size = file.metadata().await?.len();
 
@@ -38,7 +37,7 @@ async fn run(mega: &mut mega::Client, file: &str, folder: &str) -> mega::Result<
         })
     };
 
-    mega.upload_node(&hash, file_name, size, reader.compat())
+    mega.upload_node(&node, file_name, size, reader.compat())
         .await?;
 
     bar.finish_with_message("file uploaded !");

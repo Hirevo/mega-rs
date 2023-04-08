@@ -9,20 +9,17 @@ async fn run(
     distant_file_path: &str,
     distant_folder_path: &str,
 ) -> mega::Result<()> {
-    mega.fetch_nodes().await?;
+    let nodes = mega.fetch_own_nodes().await?;
 
-    let node = mega
+    let node = nodes
         .get_node_by_path(distant_file_path)
         .expect("could not find node by path");
 
-    let parent = mega
+    let parent = nodes
         .get_node_by_path(distant_folder_path)
-        .expect("could not find node by path");
+        .expect("could not find parent by path");
 
-    let hash = node.hash().to_string();
-    let parent_hash = parent.hash().to_string();
-
-    mega.move_node(&hash, &parent_hash).await?;
+    mega.move_node(node, parent).await?;
 
     println!("node successfully moved !");
 

@@ -134,14 +134,14 @@ pub(crate) fn decrypt_ebc_in_place(key: &[u8], data: &mut [u8]) {
 pub(crate) fn unmerge_key_mac(key: &mut [u8]) {
     let (fst, snd) = key.split_at_mut(16);
     for (a, b) in fst.into_iter().zip(snd) {
-        *a = *a ^ *b;
+        *a ^= *b;
     }
 }
 
 pub(crate) fn merge_key_mac(key: &mut [u8]) {
     let (fst, snd) = key.split_at_mut(16);
     for (a, b) in fst.into_iter().zip(snd) {
-        *a = *a ^ *b;
+        *a ^= *b;
     }
 }
 

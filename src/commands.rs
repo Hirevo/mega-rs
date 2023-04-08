@@ -27,7 +27,7 @@ pub enum NodeKind {
 
 /// Represents a request message to MEGA's API.
 ///
-/// Keep in mind that these message definitions have been somewhat reverse-engineered from MEGA's C++ SDK, and are, therefore, not complete.  
+/// Keep in mind that these message definitions have been somewhat reverse-engineered from MEGA's C++ SDK, and are, therefore, not complete.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "a")]
 pub enum Request {
@@ -79,6 +79,9 @@ pub enum Request {
         /// `c` should be 1.
         #[serde(rename = "c")]
         c: i32,
+        /// TODO
+        #[serde(rename = "r", skip_serializing_if = "Option::is_none")]
+        r: Option<i32>,
     },
     /// Message for initiating the download of a node.
     #[serde(rename = "g")]
@@ -162,7 +165,7 @@ pub enum Request {
 
 /// Represents a response message from MEGA's API.
 ///
-/// Keep in mind that these message definitions have been somewhat reverse-engineered from MEGA's C++ SDK, and are, therefore, not complete.  
+/// Keep in mind that these message definitions have been somewhat reverse-engineered from MEGA's C++ SDK, and are, therefore, not complete.
 pub enum Response {
     /// An error response.
     Error(ErrorCode),
@@ -322,13 +325,13 @@ pub struct FetchNodesResponse {
     pub nodes: Vec<FileNode>,
     /// Additional metadata for the nodes.
     #[serde(rename = "ok")]
-    pub ok: Vec<FileMetadata>,
+    pub ok: Option<Vec<FileMetadata>>,
     /// Additional metadata for the nodes.
     #[serde(rename = "s")]
-    pub s: Vec<FileS>,
+    pub s: Option<Vec<FileS>>,
     /// Additional data about the nodes' owners.
     #[serde(rename = "u")]
-    pub user: Vec<FileUser>,
+    pub user: Option<Vec<FileUser>>,
     /// TODO
     #[serde(rename = "sn")]
     pub sn: String,

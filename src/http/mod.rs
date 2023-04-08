@@ -1,4 +1,5 @@
 use std::pin::Pin;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -21,7 +22,7 @@ pub struct UserSession {
 }
 
 /// Stores the data representing the client's state.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ClientState {
     /// The API's origin.
     pub(crate) origin: Url,
@@ -39,7 +40,7 @@ pub struct ClientState {
     /// making protocol-level encryption a bit redundant and potentially slowing down the transfer.
     pub(crate) https: bool,
     /// The request counter, for idempotency.
-    pub(crate) id_counter: u64,
+    pub(crate) id_counter: AtomicU64,
     /// The user's session.
     pub(crate) session: Option<UserSession>,
 }
@@ -51,6 +52,7 @@ pub trait HttpClient {
         &self,
         state: &ClientState,
         requests: &[Request],
+        query_params: &[(&str, &str)],
     ) -> Result<Vec<Response>, Error>;
 
     /// Initiate a file download from the given URL.

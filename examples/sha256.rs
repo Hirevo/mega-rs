@@ -13,9 +13,9 @@ use indicatif::{ProgressBar, ProgressStyle};
 use sha2::Digest;
 
 async fn run(mega: &mut mega::Client, distant_file_path: &str) -> mega::Result<()> {
-    mega.fetch_nodes().await?;
+    let nodes = mega.fetch_own_nodes().await?;
 
-    let node = mega
+    let node = nodes
         .get_node_by_path(distant_file_path)
         .expect("could not find node by path");
 
@@ -25,8 +25,6 @@ async fn run(mega: &mut mega::Client, distant_file_path: &str) -> mega::Result<(
     bar.set_style(progress_bar_style());
     bar.set_message("hashing file...");
 
-    let name = node.name().to_string();
-    let hash = node.hash().to_string();
     let mut hasher = futures::io::AllowStdIo::new(sha2::Sha256::new());
 
     let bar = Arc::new(bar);
@@ -43,14 +41,14 @@ async fn run(mega: &mut mega::Client, distant_file_path: &str) -> mega::Result<(
         Ok::<_, std::io::Error>(hasher)
     });
 
-    mega.download_node(&hash, writer).await?;
+    mega.download_node(node, writer).await?;
     let hasher = handle.await.unwrap()?;
 
     bar.finish_and_clear();
 
     let hash = hasher.into_inner().finalize();
     let hash = hex::encode_upper(hash);
-    println!("{name}: {hash}");
+    println!("{name}: {hash}", name = node.name());
 
     Ok(())
 }

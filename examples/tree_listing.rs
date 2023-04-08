@@ -7,51 +7,62 @@ use std::env;
 
 use text_trees::{FormatCharacters, StringTreeNode, TreeFormatting};
 
-fn construct_tree_node(mega: &mega::Client, node: &mega::Node) -> StringTreeNode {
-    let children = node.children().iter().filter_map(|hash| {
-        let node = mega.get_node_by_hash(hash)?;
-        Some(construct_tree_node(mega, node))
-    });
+fn construct_tree_node(nodes: &mega::Nodes, node: &mega::Node) -> StringTreeNode {
+    let (mut folders, mut files): (Vec<_>, Vec<_>) = node
+        .children()
+        .iter()
+        .filter_map(|hash| nodes.get_node_by_hash(hash))
+        .partition(|node| node.kind() == mega::NodeKind::Folder);
+
+    folders.sort_unstable_by_key(|node| node.name());
+    files.sort_unstable_by_key(|node| node.name());
+
+    let children = std::iter::empty()
+        .chain(folders)
+        .chain(files)
+        .map(|node| construct_tree_node(nodes, node));
+
     StringTreeNode::with_child_nodes(node.name().to_string(), children)
 }
 
 async fn run(mega: &mut mega::Client, distant_file_path: Option<&str>) -> mega::Result<()> {
-    mega.fetch_nodes().await?;
+    let mut stdout = std::io::stdout().lock();
+
+    let nodes = mega.fetch_own_nodes().await?;
 
     if let Some(distant_file_path) = distant_file_path {
-        let root = mega
+        let root = nodes
             .get_node_by_path(distant_file_path)
             .expect("could not get root node");
 
-        let tree = construct_tree_node(mega, root);
+        let tree = construct_tree_node(&nodes, root);
         let formatting = TreeFormatting::dir_tree(FormatCharacters::box_chars());
 
         println!();
-        tree.write_with_format(&mut std::io::stdout(), &formatting)
-            .unwrap();
+        tree.write_with_format(&mut stdout, &formatting).unwrap();
         println!();
     } else {
-        let cloud_drive = mega.cloud_drive().expect("could not get Cloud Drive root");
-        let inbox = mega.inbox().expect("could not get Inbox root");
-        let rubbish_bin = mega.rubbish_bin().expect("could not get Rubbish Bin root");
+        let cloud_drive = nodes.cloud_drive().expect("could not get Cloud Drive root");
+        let inbox = nodes.inbox().expect("could not get Inbox root");
+        let rubbish_bin = nodes.rubbish_bin().expect("could not get Rubbish Bin root");
 
-        let cloud_drive_tree = construct_tree_node(mega, cloud_drive);
-        let inbox_tree = construct_tree_node(mega, inbox);
-        let rubbish_bin_tree = construct_tree_node(mega, rubbish_bin);
+        let cloud_drive_tree = construct_tree_node(&nodes, cloud_drive);
+        let inbox_tree = construct_tree_node(&nodes, inbox);
+        let rubbish_bin_tree = construct_tree_node(&nodes, rubbish_bin);
 
         let formatting = TreeFormatting::dir_tree(FormatCharacters::box_chars());
 
         println!();
         cloud_drive_tree
-            .write_with_format(&mut std::io::stdout(), &formatting)
+            .write_with_format(&mut stdout, &formatting)
             .unwrap();
         println!();
         inbox_tree
-            .write_with_format(&mut std::io::stdout(), &formatting)
+            .write_with_format(&mut stdout, &formatting)
             .unwrap();
         println!();
         rubbish_bin_tree
-            .write_with_format(&mut std::io::stdout(), &formatting)
+            .write_with_format(&mut stdout, &formatting)
             .unwrap();
         println!();
     }

@@ -1,6 +1,7 @@
 //! This is an API client library for interacting with MEGA's API using Rust.
 
 use std::collections::HashMap;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 use aes::Aes128;
@@ -103,17 +104,13 @@ impl ClientBuilder {
             max_retry_delay: self.max_retry_delay,
             timeout: self.timeout,
             https: self.https,
-            id_counter: 0,
+            id_counter: AtomicU64::new(0),
             session: None,
         };
 
         Ok(Client {
             state,
             client: Box::new(client),
-            nodes: HashMap::default(),
-            inbox: None,
-            rubbish_bin: None,
-            cloud_drive: None,
         })
     }
 }
@@ -124,14 +121,6 @@ pub struct Client {
     pub(crate) state: ClientState,
     /// The HTTP client.
     pub(crate) client: Box<dyn HttpClient>,
-    /// The nodes fetched from MEGA, keyed by their hash.
-    pub(crate) nodes: HashMap<String, Node>,
-    /// The root node hash for the Inbox.
-    pub(crate) inbox: Option<String>,
-    /// The root node hash for the Rubbish Bin.
-    pub(crate) rubbish_bin: Option<String>,
-    /// The root node hash for the Cloud Drive.
-    pub(crate) cloud_drive: Option<String>,
 }
 
 impl Client {
@@ -141,42 +130,8 @@ impl Client {
     }
 
     /// Sends a request to the MEGA API.
-    pub(crate) async fn send_requests(&mut self, requests: &[Request]) -> Result<Vec<Response>> {
-        self.client.send_requests(&self.state, requests).await
-    }
-
-    /// Gets the root node for the Cloud Drive.
-    pub fn cloud_drive(&self) -> Option<&Node> {
-        let hash = self.cloud_drive.as_ref()?;
-        self.nodes.get(hash)
-    }
-
-    /// Gets the root node for the Inbox.
-    pub fn inbox(&self) -> Option<&Node> {
-        let hash = self.inbox.as_ref()?;
-        self.nodes.get(hash)
-    }
-
-    /// Gets the root node for the Rubbish Bin.
-    pub fn rubbish_bin(&self) -> Option<&Node> {
-        let hash = self.rubbish_bin.as_ref()?;
-        self.nodes.get(hash)
-    }
-
-    /// Gets a node, identified by its path within the Cloud Drive.
-    pub fn get_node_by_path(&self, path: &str) -> Option<&Node> {
-        let root = self.cloud_drive()?;
-        path.split('/').fold(Some(root), |node, name| {
-            node?.children.iter().find_map(|hash| {
-                let found = self.get_node_by_hash(hash)?;
-                (found.name == name).then_some(found)
-            })
-        })
-    }
-
-    /// Gets a node, identified by its hash.
-    pub fn get_node_by_hash(&self, hash: &str) -> Option<&Node> {
-        self.nodes.get(hash)
+    pub(crate) async fn send_requests(&self, requests: &[Request]) -> Result<Vec<Response>> {
+        self.client.send_requests(&self.state, requests, &[]).await
     }
 
     /// Authenticates this session with MEGA.
@@ -299,9 +254,9 @@ impl Client {
         }
     }
 
-    /// Fetches all nodes from MEGA and makes them available for further querying.
-    pub async fn fetch_nodes(&mut self) -> Result<()> {
-        let request = Request::FetchNodes { c: 1 };
+    /// Fetches all nodes from the user's own MEGA account.
+    pub async fn fetch_own_nodes(&self) -> Result<Nodes> {
+        let request = Request::FetchNodes { c: 1, r: None };
         let responses = self.send_requests(&[request]).await?;
 
         let files = match responses.as_slice() {
@@ -316,7 +271,7 @@ impl Client {
 
         let session = self.state.session.as_ref().unwrap();
 
-        self.nodes = HashMap::default();
+        let mut nodes = HashMap::<String, Node>::default();
 
         for file in &files.nodes {
             match file.kind {
@@ -346,8 +301,7 @@ impl Client {
                             size: file.sz.unwrap_or(0),
                             kind: file.kind,
                             parent: (!file.parent.is_empty()).then(|| file.parent.clone()),
-                            children: self
-                                .nodes
+                            children: nodes
                                 .values()
                                 .filter_map(|it| {
                                     let parent = it.parent.as_ref()?;
@@ -355,25 +309,25 @@ impl Client {
                                 })
                                 .collect(),
                             key: file_key,
-                            created_at: Utc.timestamp_opt(file.ts as i64, 0).unwrap(),
+                            created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
+                            download_id: None,
                         };
 
-                        if let Some(parent) = self.nodes.get_mut(&file.parent) {
+                        if let Some(parent) = nodes.get_mut(&file.parent) {
                             parent.children.push(node.hash.clone());
                         }
 
-                        self.nodes.insert(node.hash.clone(), node);
+                        nodes.insert(node.hash.clone(), node);
                     }
                 }
                 NodeKind::Root => {
                     let node = Node {
-                        name: String::from("Cloud Drive"),
+                        name: String::from("Root"),
                         hash: file.hash.clone(),
                         size: file.sz.unwrap_or(0),
                         kind: NodeKind::Root,
                         parent: None,
-                        children: self
-                            .nodes
+                        children: nodes
                             .values()
                             .filter_map(|it| {
                                 let parent = it.parent.as_ref()?;
@@ -381,10 +335,10 @@ impl Client {
                             })
                             .collect(),
                         key: <_>::default(),
-                        created_at: Utc.timestamp_opt(file.ts as i64, 0).unwrap(),
+                        created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
+                        download_id: None,
                     };
-                    self.cloud_drive = Some(node.hash.clone());
-                    self.nodes.insert(node.hash.clone(), node);
+                    nodes.insert(node.hash.clone(), node);
                 }
                 NodeKind::Inbox => {
                     let node = Node {
@@ -393,8 +347,7 @@ impl Client {
                         size: file.sz.unwrap_or(0),
                         kind: NodeKind::Inbox,
                         parent: None,
-                        children: self
-                            .nodes
+                        children: nodes
                             .values()
                             .filter_map(|it| {
                                 let parent = it.parent.as_ref()?;
@@ -402,20 +355,19 @@ impl Client {
                             })
                             .collect(),
                         key: <_>::default(),
-                        created_at: Utc.timestamp_opt(file.ts as i64, 0).unwrap(),
+                        created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
+                        download_id: None,
                     };
-                    self.inbox = Some(node.hash.clone());
-                    self.nodes.insert(node.hash.clone(), node);
+                    nodes.insert(node.hash.clone(), node);
                 }
                 NodeKind::Trash => {
                     let node = Node {
-                        name: String::from("Rubbish Bin"),
+                        name: String::from("Trash"),
                         hash: file.hash.clone(),
                         size: file.sz.unwrap_or(0),
                         kind: NodeKind::Trash,
                         parent: None,
-                        children: self
-                            .nodes
+                        children: nodes
                             .values()
                             .filter_map(|it| {
                                 let parent = it.parent.as_ref()?;
@@ -423,20 +375,163 @@ impl Client {
                             })
                             .collect(),
                         key: <_>::default(),
-                        created_at: Utc.timestamp_opt(file.ts as i64, 0).unwrap(),
+                        created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
+                        download_id: None,
                     };
-                    self.rubbish_bin = Some(node.hash.clone());
-                    self.nodes.insert(node.hash.clone(), node);
+                    nodes.insert(node.hash.clone(), node);
                 }
                 NodeKind::Unknown => continue,
             }
         }
 
-        Ok(())
+        Ok(Nodes::new(nodes))
+    }
+
+    /// Fetches all nodes from a public MEGA link.
+    pub async fn fetch_public_nodes(&self, url: &str) -> Result<Nodes> {
+        // supported URL formats:
+        // - https://mega.nz/file/{node_id}#{node_key}
+        // - https://mega.nz/folder/{node_id}#{node_key}
+
+        let shared_url = Url::parse(url)?;
+        let (node_kind, node_id) = {
+            let segments: Vec<&str> = shared_url.path().split("/").skip(1).collect();
+            match segments.as_slice() {
+                ["file", file_id] => (NodeKind::File, file_id.to_string()),
+                ["folder", folder_id] => (NodeKind::Folder, folder_id.to_string()),
+                _ => {
+                    // TODO: replace with its own error enum variant.
+                    return Err(Error::Other("invalid URL format".into()));
+                }
+            }
+        };
+
+        let node_key = {
+            let fragment = shared_url
+                .fragment()
+                .ok_or_else(|| Error::Other("invalid URL format".into()))?;
+            let key = fragment.split_once("/").map_or(fragment, |it| it.0);
+            BASE64_URL_SAFE_NO_PAD.decode(key)?
+        };
+
+        let mut nodes = HashMap::<String, Node>::default();
+
+        match node_kind {
+            NodeKind::File => {
+                let request = Request::Download {
+                    g: 1,
+                    ssl: 0,
+                    p: Some(node_id.clone()),
+                    n: None,
+                };
+                let responses = self.send_requests(&[request]).await?;
+
+                let file = match responses.as_slice() {
+                    [Response::Download(file)] => file,
+                    [Response::Error(code)] => {
+                        return Err(Error::from(*code));
+                    }
+                    _ => {
+                        return Err(Error::InvalidResponseType);
+                    }
+                };
+
+                let attrs = {
+                    let mut node_key = node_key.clone();
+                    utils::unmerge_key_mac(&mut node_key);
+
+                    let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
+                    FileAttributes::decrypt_and_unpack(&node_key[..16], buffer.as_mut_slice())?
+                };
+
+                let node = Node {
+                    name: attrs.name,
+                    hash: node_id.clone(),
+                    size: file.size,
+                    kind: NodeKind::File,
+                    parent: None,
+                    children: Vec::default(),
+                    key: node_key,
+                    created_at: None,
+                    download_id: Some(node_id),
+                };
+
+                nodes.insert(node.hash.clone(), node);
+
+                Ok(Nodes::new(nodes))
+            }
+            NodeKind::Folder => {
+                let request = Request::FetchNodes { c: 1, r: Some(1) };
+                let responses = self
+                    .client
+                    .send_requests(&self.state, &[request], &[("n", node_id.as_str())])
+                    .await?;
+
+                let files = match responses.as_slice() {
+                    [Response::FetchNodes(files)] => files,
+                    [Response::Error(code)] => {
+                        return Err(Error::from(*code));
+                    }
+                    _ => {
+                        return Err(Error::InvalidResponseType);
+                    }
+                };
+
+                for file in &files.nodes {
+                    match file.kind {
+                        NodeKind::File | NodeKind::Folder => {
+                            let (_, file_key) = file.key.as_ref().unwrap().split_once(":").unwrap();
+
+                            let mut file_key = BASE64_URL_SAFE_NO_PAD.decode(file_key)?;
+                            utils::decrypt_ebc_in_place(&node_key, &mut file_key);
+
+                            let attrs = {
+                                let mut file_key = file_key.clone();
+                                utils::unmerge_key_mac(&mut file_key);
+
+                                let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
+                                FileAttributes::decrypt_and_unpack(
+                                    &file_key[..16],
+                                    buffer.as_mut_slice(),
+                                )?
+                            };
+
+                            let node = Node {
+                                name: attrs.name,
+                                hash: file.hash.clone(),
+                                size: file.sz.unwrap_or(0),
+                                kind: file.kind,
+                                parent: (!file.parent.is_empty()).then(|| file.parent.clone()),
+                                children: nodes
+                                    .values()
+                                    .filter_map(|it| {
+                                        let parent = it.parent.as_ref()?;
+                                        (parent == &file.hash).then(|| file.hash.clone())
+                                    })
+                                    .collect(),
+                                key: file_key,
+                                created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
+                                download_id: Some(node_id.clone()),
+                            };
+
+                            if let Some(parent) = nodes.get_mut(&file.parent) {
+                                parent.children.push(node.hash.clone());
+                            }
+
+                            nodes.insert(node.hash.clone(), node);
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+
+                Ok(Nodes::new(nodes))
+            }
+            _ => unreachable!(),
+        }
     }
 
     /// Returns the status of the current storage quotas.
-    pub async fn get_storage_quotas(&mut self) -> Result<StorageQuotas> {
+    pub async fn get_storage_quotas(&self) -> Result<StorageQuotas> {
         let responses = self
             .send_requests(&[Request::Quota { xfer: 1, strg: 1 }])
             .await?;
@@ -452,20 +547,37 @@ impl Client {
     }
 
     /// Downloads a file, identified by its hash, into the given writer.
-    pub async fn download_node<W: AsyncWrite>(&mut self, hash: &str, writer: W) -> Result<()> {
-        let orig_file_key = self
-            .get_node_by_hash(hash)
-            .ok_or(Error::NodeNotFound)?
-            .key
-            .clone();
+    pub async fn download_node<W: AsyncWrite>(&self, node: &Node, writer: W) -> Result<()> {
+        let responses = if let Some(download_id) = node.download_id() {
+            let request = if node.hash.as_str() == download_id {
+                Request::Download {
+                    g: 1,
+                    ssl: if self.state.https { 2 } else { 0 },
+                    n: None,
+                    p: Some(node.hash.clone()),
+                }
+            } else {
+                Request::Download {
+                    g: 1,
+                    ssl: if self.state.https { 2 } else { 0 },
+                    n: Some(node.hash.clone()),
+                    p: None,
+                }
+            };
 
-        let request = Request::Download {
-            g: 1,
-            ssl: if self.state.https { 2 } else { 0 },
-            p: None,
-            n: Some(hash.to_string()),
+            self.client
+                .send_requests(&self.state, &[request], &[("n", download_id)])
+                .await?
+        } else {
+            let request = Request::Download {
+                g: 1,
+                ssl: if self.state.https { 2 } else { 0 },
+                p: None,
+                n: Some(node.hash.clone()),
+            };
+
+            self.send_requests(&[request]).await?
         };
-        let responses = self.send_requests(&[request]).await?;
 
         let response = match responses.as_slice() {
             [Response::Download(response)] => response,
@@ -477,7 +589,7 @@ impl Client {
             }
         };
 
-        let mut file_key = orig_file_key.clone();
+        let mut file_key = node.key.clone();
         utils::unmerge_key_mac(&mut file_key);
 
         let url =
@@ -487,10 +599,10 @@ impl Client {
 
         let mut file_iv = [0u8; 16];
 
-        file_iv[..8].copy_from_slice(&orig_file_key[16..24]);
+        file_iv[..8].copy_from_slice(&node.key[16..24]);
         let mut ctr = ctr::Ctr128BE::<Aes128>::new(file_key[..16].into(), (&file_iv).into());
 
-        file_iv[8..].copy_from_slice(&orig_file_key[16..24]);
+        file_iv[8..].copy_from_slice(&node.key[16..24]);
 
         let mut final_mac_data = [0u8; 16];
         let mut final_mac =
@@ -539,11 +651,11 @@ impl Client {
         }
 
         for i in 0..4 {
-            final_mac_data[i] = final_mac_data[i] ^ final_mac_data[i + 4];
-            final_mac_data[i + 4] = final_mac_data[i + 8] ^ final_mac_data[i + 12];
+            final_mac_data[i] ^= final_mac_data[i + 4];
+            final_mac_data[i + 4] ^= final_mac_data[i + 12];
         }
 
-        if final_mac_data[..8] != orig_file_key[24..32] {
+        if final_mac_data[..8] != node.key[24..32] {
             return Err(Error::MacMismatch);
         }
 
@@ -552,8 +664,8 @@ impl Client {
 
     /// Uploads a file within a parent folder.
     pub async fn upload_node<R: AsyncRead>(
-        &mut self,
-        parent_hash: &str,
+        &self,
+        parent: &Node,
         name: &str,
         size: u64,
         reader: R,
@@ -582,15 +694,15 @@ impl Client {
         let mut ctr = ctr::Ctr128BE::<Aes128>::new((&file_key).into(), (&file_iv).into());
         file_iv[8..].copy_from_slice(&file_iv_seed);
 
-        let mut final_mac_data = [0u8; 16];
-        let mut final_mac =
-            cbc::Encryptor::<Aes128>::new((&file_key).into(), (&final_mac_data).into());
-
         let (pipe_reader, mut pipe_writer) = sluice::pipe::pipe();
 
         let fut_1 = async move {
             let mut chunk_size: u64 = 131_072; // 2^17
             let mut cur_mac = [0u8; 16];
+
+            let mut final_mac_data = [0u8; 16];
+            let mut final_mac =
+                cbc::Encryptor::<Aes128>::new((&file_key).into(), (&final_mac_data).into());
 
             let mut buffer = Vec::with_capacity(chunk_size as usize);
 
@@ -606,9 +718,6 @@ impl Client {
                 if bytes_read == 0 {
                     break;
                 }
-
-                ctr.apply_keystream(&mut buffer);
-                pipe_writer.write_all(&buffer).await?;
 
                 let (chunks, leftover) = buffer.split_at(buffer.len() - buffer.len() % 16);
 
@@ -626,22 +735,25 @@ impl Client {
 
                 final_mac.encrypt_block_b2b_mut((&cur_mac).into(), (&mut final_mac_data).into());
 
+                ctr.apply_keystream(&mut buffer);
+                pipe_writer.write_all(&buffer).await?;
+
                 if chunk_size < 1_048_576 {
                     chunk_size += 131_072;
                 }
             }
 
-            Ok(())
+            Ok(final_mac_data)
         };
 
         let url = Url::parse(format!("{0}/{1}", response.upload_url, 0).as_str())?;
         let fut_2 = self.client.upload(url, size, Box::pin(pipe_reader));
 
-        let (_, maybe_completion_handle) = futures::try_join!(fut_1, fut_2)?;
+        let (mut final_mac_data, maybe_completion_handle) = futures::try_join!(fut_1, fut_2)?;
 
         for i in 0..4 {
-            final_mac_data[i] = final_mac_data[i] ^ final_mac_data[i + 4];
-            final_mac_data[i + 4] = final_mac_data[i + 8] ^ final_mac_data[i + 12];
+            final_mac_data[i] ^= final_mac_data[i + 4];
+            final_mac_data[i + 4] ^= final_mac_data[i + 12];
         }
 
         let file_attr = FileAttributes {
@@ -675,15 +787,15 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::UploadComplete {
-            t: parent_hash.to_string(),
+            t: parent.hash.clone(),
             n: [attrs],
             i: idempotence_id,
         };
 
         let responses = self.send_requests(&[request]).await?;
 
-        let response = match responses.as_slice() {
-            [Response::UploadComplete(response)] => response,
+        match responses.as_slice() {
+            [Response::UploadComplete(_)] => {}
             [Response::Error(code)] => {
                 return Err(Error::from(*code));
             }
@@ -692,33 +804,11 @@ impl Client {
             }
         };
 
-        for created in response.f.iter() {
-            let mut node = Node {
-                kind: created.kind,
-                name: name.to_string(),
-                hash: created.hash.clone(),
-                size: created.sz.unwrap_or(0),
-                key: key.to_vec(),
-                parent: Some(created.parent.clone()),
-                children: <_>::default(),
-                created_at: Utc.timestamp_opt(created.ts as i64, 0).unwrap(),
-            };
-
-            let session = self.state.session.as_ref().unwrap();
-            utils::decrypt_ebc_in_place(&session.key, &mut node.key);
-
-            if let Some(parent) = self.nodes.get_mut(&created.parent) {
-                parent.children.push(node.hash.clone());
-            }
-
-            self.nodes.insert(node.hash.clone(), node);
-        }
-
         Ok(())
     }
 
     /// Creates a new directory.
-    pub async fn create_dir(&mut self, parent_hash: &str, name: &str) -> Result<()> {
+    pub async fn create_dir(&self, parent: &Node, name: &str) -> Result<()> {
         let (file_key, file_iv_seed): ([u8; 16], [u8; 8]) = rand::random();
 
         let mut file_iv = [0u8; 16];
@@ -754,15 +844,15 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::UploadComplete {
-            t: parent_hash.to_string(),
+            t: parent.hash.clone(),
             n: [attrs],
             i: idempotence_id,
         };
 
         let responses = self.send_requests(&[request]).await?;
 
-        let response = match responses.as_slice() {
-            [Response::UploadComplete(response)] => response,
+        match responses.as_slice() {
+            [Response::UploadComplete(_)] => {}
             [Response::Error(code)] => {
                 return Err(Error::from(*code));
             }
@@ -771,35 +861,12 @@ impl Client {
             }
         };
 
-        for created in response.f.iter() {
-            let mut node = Node {
-                kind: created.kind,
-                name: name.to_string(),
-                hash: created.hash.clone(),
-                size: created.sz.unwrap_or(0),
-                key: key.to_vec(),
-                parent: Some(created.parent.clone()),
-                children: <_>::default(),
-                created_at: Utc.timestamp_opt(created.ts as i64, 0).unwrap(),
-            };
-
-            let session = self.state.session.as_ref().unwrap();
-            utils::encrypt_ebc_in_place(&session.key, &mut node.key);
-
-            if let Some(parent) = self.nodes.get_mut(&created.parent) {
-                parent.children.push(node.hash.clone());
-            }
-
-            self.nodes.insert(node.hash.clone(), node);
-        }
-
         Ok(())
     }
 
     /// Renames a node.
-    pub async fn rename_node(&mut self, hash: &str, name: &str) -> Result<()> {
+    pub async fn rename_node(&self, node: &Node, name: &str) -> Result<()> {
         let file_key = {
-            let node = self.get_node_by_hash(hash).ok_or(Error::NodeNotFound)?;
             let mut file_key = node.key.clone();
             utils::unmerge_key_mac(&mut file_key);
             file_key
@@ -818,7 +885,7 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::SetFileAttributes {
-            n: hash.to_string(),
+            n: node.hash.clone(),
             key: None,
             attr: file_attr_buffer,
             i: idempotence_id,
@@ -836,20 +903,16 @@ impl Client {
             }
         }
 
-        if let Some(node) = self.nodes.get_mut(hash) {
-            node.name = name.to_string();
-        }
-
         Ok(())
     }
 
     /// Moves a node to a different folder.
-    pub async fn move_node(&mut self, hash: &str, parent_hash: &str) -> Result<()> {
+    pub async fn move_node(&self, node: &Node, parent: &Node) -> Result<()> {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::Move {
-            n: hash.to_string(),
-            t: parent_hash.to_string(),
+            n: node.hash.clone(),
+            t: parent.hash.clone(),
             i: idempotence_id,
         };
 
@@ -863,41 +926,18 @@ impl Client {
             _ => {
                 return Err(Error::InvalidResponseType);
             }
-        }
-
-        if let Some(node) = self.nodes.get_mut(hash) {
-            let maybe_old_parent_hash = node.parent.replace(parent_hash.to_string());
-
-            if let Some(old_parent_hash) = maybe_old_parent_hash {
-                if let Some(old_parent) = self.nodes.get_mut(&old_parent_hash) {
-                    old_parent.children.retain(|it| it != hash);
-                }
-            }
-
-            if let Some(new_parent) = self.nodes.get_mut(parent_hash) {
-                new_parent.children.push(hash.to_string());
-            }
-        }
-
-        if let Some(node) = self.nodes.get_mut(hash) {
-            node.parent = Some(parent_hash.to_string());
         }
 
         Ok(())
     }
 
     /// Moves a node to the Rubbish Bin.
-    pub async fn move_to_rubbish_bin(&mut self, hash: &str) -> Result<()> {
-        let rubbish_bin = self.rubbish_bin.clone().ok_or(Error::NodeNotFound)?;
-        self.move_node(hash, rubbish_bin.as_str()).await
-    }
-
-    /// Deletes a node.
-    pub async fn delete_node(&mut self, hash: &str) -> Result<()> {
+    pub async fn move_to_rubbish_bin(&self, node: &Node) -> Result<()> {
         let idempotence_id = utils::random_string(10);
 
-        let request = Request::Delete {
-            n: hash.to_string(),
+        let request = Request::Move {
+            n: node.hash.clone(),
+            t: "4".to_string(),
             i: idempotence_id,
         };
 
@@ -913,11 +953,27 @@ impl Client {
             }
         }
 
-        if let Some(node) = self.nodes.remove(hash) {
-            if let Some(parent_hash) = node.parent.as_ref() {
-                if let Some(parent) = self.nodes.get_mut(parent_hash) {
-                    parent.children.retain(|it| it != hash);
-                }
+        Ok(())
+    }
+
+    /// Deletes a node.
+    pub async fn delete_node(&self, node: &Node) -> Result<()> {
+        let idempotence_id = utils::random_string(10);
+
+        let request = Request::Delete {
+            n: node.hash.clone(),
+            i: idempotence_id,
+        };
+
+        let responses = self.send_requests(&[request]).await?;
+
+        match responses.as_slice() {
+            [Response::Error(ErrorCode::OK)] => {}
+            [Response::Error(code)] => {
+                return Err(Error::from(*code));
+            }
+            _ => {
+                return Err(Error::InvalidResponseType);
             }
         }
 
@@ -928,38 +984,177 @@ impl Client {
 /// Represents a node stored in MEGA (either a file or a folder).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
+    /// The name of the node.
     pub(crate) name: String,
+    /// The hash (or handle) of the node.
     pub(crate) hash: String,
+    /// The size (in bytes) of the node.
     pub(crate) size: u64,
+    /// The kind of the node.
     pub(crate) kind: NodeKind,
+    /// The hash (or handle) of the node's parent.
     pub(crate) parent: Option<String>,
+    /// The hashes (or handles) of the node's children.
     pub(crate) children: Vec<String>,
+    /// The de-obfuscated file key of the node.
     pub(crate) key: Vec<u8>,
-    pub(crate) created_at: DateTime<Utc>,
+    /// The creation date of the node.
+    pub(crate) created_at: Option<DateTime<Utc>>,
+    /// The ID of the public link this node is from.
+    pub(crate) download_id: Option<String>,
 }
 
 impl Node {
+    /// Returns the name of the node.
     pub fn name(&self) -> &str {
         self.name.as_str()
     }
 
-    pub fn size(&self) -> u64 {
-        self.size
-    }
-
-    pub fn kind(&self) -> NodeKind {
-        self.kind
-    }
-
+    /// Returns the hash (or handle) of the node.
     pub fn hash(&self) -> &str {
         self.hash.as_str()
     }
 
+    /// Returns the size (in bytes) of the node.
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Returns the kind of the node.
+    pub fn kind(&self) -> NodeKind {
+        self.kind
+    }
+
+    /// Returns the hash (or handle) of the node's parent.
+    pub fn parent(&self) -> Option<&str> {
+        self.parent.as_deref()
+    }
+
+    /// Returns the hashes (or handles) of the node's children.
     pub fn children(&self) -> &[String] {
         self.children.as_slice()
     }
 
-    pub fn created_at(&self) -> &DateTime<Utc> {
-        &self.created_at
+    /// Returns the creation date of the node.
+    pub fn created_at(&self) -> Option<&DateTime<Utc>> {
+        self.created_at.as_ref()
+    }
+
+    /// Returns the ID of the public link this node is from.
+    pub fn download_id(&self) -> Option<&str> {
+        self.download_id.as_deref()
+    }
+}
+
+/// Represents a collection of nodes from MEGA.
+pub struct Nodes {
+    /// The nodes from MEGA, keyed by their hash (or handle).
+    pub(crate) nodes: HashMap<String, Node>,
+    /// The hash (or handle) of the root node for the Cloud Drive.
+    pub(crate) cloud_drive: Option<String>,
+    /// The hash (or handle) of the root node for the Rubbish Bin.
+    pub(crate) rubbish_bin: Option<String>,
+    /// The hash (or handle) of the root node for the Inbox.
+    pub(crate) inbox: Option<String>,
+}
+
+impl Nodes {
+    pub(crate) fn new(nodes: HashMap<String, Node>) -> Self {
+        let cloud_drive = nodes
+            .values()
+            .find_map(|node| (node.kind == NodeKind::Root).then(|| node.hash.clone()));
+        let rubbish_bin = nodes
+            .values()
+            .find_map(|node| (node.kind == NodeKind::Trash).then(|| node.hash.clone()));
+        let inbox = nodes
+            .values()
+            .find_map(|node| (node.kind == NodeKind::Inbox).then(|| node.hash.clone()));
+
+        Self {
+            nodes,
+            cloud_drive,
+            rubbish_bin,
+            inbox,
+        }
+    }
+
+    /// Returns the number of nodes in this collection.
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Creates an iterator over all the root nodes.
+    pub fn roots(&self) -> impl Iterator<Item = &Node> {
+        self.nodes.values().filter(|node| {
+            node.parent.as_ref().map_or(true, |parent| {
+                // Root nodes from public links can still have
+                // a `parent` handle associated with them, but that
+                // parent won't be found in the current collection.
+                !self.nodes.contains_key(parent)
+            })
+        })
+    }
+
+    /// Gets a node, identified by its hash (or handle).
+    pub fn get_node_by_hash(&self, hash: &str) -> Option<&Node> {
+        self.nodes.get(hash)
+    }
+
+    /// Gets a node, identified by its path.
+    pub fn get_node_by_path(&self, path: &str) -> Option<&Node> {
+        let path = if path.starts_with('/') {
+            &path[1..]
+        } else {
+            path
+        };
+
+        let Some((root, path)) = path.split_once('/') else {
+            return self.roots().find(|node| node.name == path);
+        };
+
+        let root = self.roots().find(|node| node.name == root)?;
+        path.split('/').fold(Some(root), |node, name| {
+            node?.children.iter().find_map(|hash| {
+                let found = self.get_node_by_hash(hash)?;
+                (found.name == name).then_some(found)
+            })
+        })
+    }
+
+    /// Gets the root node for the Cloud Drive.
+    pub fn cloud_drive(&self) -> Option<&Node> {
+        let hash = self.cloud_drive.as_ref()?;
+        self.nodes.get(hash)
+    }
+
+    /// Gets the root node for the Inbox.
+    pub fn inbox(&self) -> Option<&Node> {
+        let hash = self.inbox.as_ref()?;
+        self.nodes.get(hash)
+    }
+
+    /// Gets the root node for the Rubbish Bin.
+    pub fn rubbish_bin(&self) -> Option<&Node> {
+        let hash = self.rubbish_bin.as_ref()?;
+        self.nodes.get(hash)
+    }
+
+    /// Creates a borrowing iterator over the nodes.
+    pub fn iter(&self) -> impl Iterator<Item = &Node> {
+        self.nodes.values()
+    }
+
+    /// Creates a mutably-borrowing iterator over the nodes.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Node> {
+        self.nodes.values_mut()
+    }
+}
+
+impl IntoIterator for Nodes {
+    type Item = Node;
+    type IntoIter = std::collections::hash_map::IntoValues<String, Node>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.nodes.into_values()
     }
 }

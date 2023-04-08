@@ -14,9 +14,9 @@ use tokio::fs::File;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
 async fn run(mega: &mut mega::Client, distant_file_path: &str) -> mega::Result<()> {
-    mega.fetch_nodes().await?;
+    let nodes = mega.fetch_own_nodes().await?;
 
-    let node = mega
+    let node = nodes
         .get_node_by_path(distant_file_path)
         .expect("could not find node by path");
 
@@ -26,7 +26,6 @@ async fn run(mega: &mut mega::Client, distant_file_path: &str) -> mega::Result<(
     bar.set_style(progress_bar_style());
     bar.set_message("downloading file...");
 
-    let hash = node.hash().to_string();
     let file = File::create(node.name()).await?;
 
     let bar = Arc::new(bar);
@@ -40,10 +39,10 @@ async fn run(mega: &mut mega::Client, distant_file_path: &str) -> mega::Result<(
 
     let handle =
         tokio::spawn(async move { futures::io::copy(reader, &mut file.compat_write()).await });
-    mega.download_node(&hash, writer).await?;
+    mega.download_node(node, writer).await?;
     handle.await.unwrap()?;
 
-    bar.finish_with_message("file downloaded !");
+    bar.finish_with_message(format!("{} downloaded !", node.name()));
 
     Ok(())
 }

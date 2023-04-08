@@ -1,5 +1,6 @@
 use std::io;
 use std::pin::Pin;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use futures::io::AsyncRead;
@@ -21,16 +22,20 @@ impl HttpClient for reqwest::Client {
         &self,
         state: &ClientState,
         requests: &[Request],
+        query_params: &[(&str, &str)],
     ) -> Result<Vec<Response>, Error> {
         let url = {
             let mut url = state.origin.join("/cs").unwrap();
 
             let mut qs = url.query_pairs_mut();
-            qs.append_pair("id", state.id_counter.to_string().as_str());
+            let id_counter = state.id_counter.fetch_add(1, Ordering::SeqCst);
+            qs.append_pair("id", id_counter.to_string().as_str());
 
             if let Some(session) = state.session.as_ref() {
                 qs.append_pair("sid", session.sid.as_str());
             }
+
+            qs.extend_pairs(query_params);
 
             qs.finish();
             drop(qs);

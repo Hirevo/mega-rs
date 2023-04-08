@@ -5,14 +5,13 @@
 use std::env;
 
 async fn run(mega: &mut mega::Client, distant_file_path: &str) -> mega::Result<()> {
-    mega.fetch_nodes().await?;
+    let nodes = mega.fetch_own_nodes().await?;
 
-    let node = mega
+    let node = nodes
         .get_node_by_path(distant_file_path)
         .expect("could not find node by path");
 
-    let hash = node.hash().to_string();
-    mega.delete_node(&hash).await?;
+    mega.delete_node(node).await?;
 
     println!("node successfully deleted !");
 
