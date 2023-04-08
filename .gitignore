@@ -11,3 +11,6 @@
 /.vscode
 /.nova
 /.idea
+
+# ignored folder, used for testing purposes
+/ignored
