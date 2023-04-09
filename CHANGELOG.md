@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Changed `Error` to implement both `Send` and `Sync`.
+
 ### Fixed
 
 [0.3.0] - 2023-04-09

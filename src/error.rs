@@ -52,7 +52,7 @@ pub enum Error {
     IoError(#[from] std::io::Error),
     /// Other errors.
     #[error("unknown error: {0}")]
-    Other(Box<dyn std::error::Error>),
+    Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// Error code originating from MEGA's API.
