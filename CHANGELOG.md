@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed issues with MAC computation when uploading files.
 
-[0.2.1] - 2023-03-02
+[0.2.1] - 2023-04-02
 --------------------
 
 ### Added
