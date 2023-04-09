@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Fixed
+
+[0.3.0] - 2023-04-09
+--------------------
+
+### Added
+
 - Added HTTPS usage (during downloads and uploads) as a configurable option.
 - Added support for listing and downloading from public MEGA links.
 - Added `Nodes` type to represent collections of fetched nodes.
