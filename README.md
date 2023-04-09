@@ -22,8 +22,8 @@ Features
 - [x] Timeout support
 - [x] Retries (exponential-backoff) support
 - [ ] Parallel connections (downloading/uploading multiple file chunks in parallel)
-- [ ] Shared links support
-  - [ ] Downloading from shared links
+- [x] Shared links support
+  - [x] Downloading from shared links
   - [ ] Uploading to shared folders
   - [ ] Create shared links to owned nodes
 - [ ] Server-to-Client events support
