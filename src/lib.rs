@@ -651,8 +651,8 @@ impl Client {
         }
 
         for i in 0..4 {
-            final_mac_data[i] ^= final_mac_data[i + 4];
-            final_mac_data[i + 4] ^= final_mac_data[i + 12];
+            final_mac_data[i] = final_mac_data[i] ^ final_mac_data[i + 4];
+            final_mac_data[i + 4] = final_mac_data[i + 8] ^ final_mac_data[i + 12];
         }
 
         if final_mac_data[..8] != node.key[24..32] {
@@ -752,8 +752,8 @@ impl Client {
         let (mut final_mac_data, maybe_completion_handle) = futures::try_join!(fut_1, fut_2)?;
 
         for i in 0..4 {
-            final_mac_data[i] ^= final_mac_data[i + 4];
-            final_mac_data[i + 4] ^= final_mac_data[i + 12];
+            final_mac_data[i] = final_mac_data[i] ^ final_mac_data[i + 4];
+            final_mac_data[i + 4] = final_mac_data[i + 8] ^ final_mac_data[i + 12];
         }
 
         let file_attr = FileAttributes {
