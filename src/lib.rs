@@ -43,7 +43,7 @@ pub struct ClientBuilder {
     ///
     /// Using plain HTTP for file transfers is fine because the file contents are already encrypted,
     /// making protocol-level encryption a bit redundant and potentially slowing down the transfer.
-    pub(crate) https: bool,
+    https: bool,
 }
 
 impl ClientBuilder {
