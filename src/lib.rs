@@ -595,7 +595,7 @@ impl Client {
         let url =
             Url::parse(format!("{0}/{1}-{2}", response.download_url, 0, response.size).as_str())?;
 
-        let mut reader = self.client.download(url).await?;
+        let mut reader = self.client.download(url).await?.take(node.size);
 
         let mut file_iv = [0u8; 16];
 
@@ -705,6 +705,8 @@ impl Client {
                 cbc::Encryptor::<Aes128>::new((&file_key).into(), (&final_mac_data).into());
 
             let mut buffer = Vec::with_capacity(chunk_size as usize);
+
+            let reader = reader.take(size);
 
             futures::pin_mut!(reader);
             loop {
