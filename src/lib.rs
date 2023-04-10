@@ -933,31 +933,6 @@ impl Client {
         Ok(())
     }
 
-    /// Moves a node to the Rubbish Bin.
-    pub async fn move_to_rubbish_bin(&self, node: &Node) -> Result<()> {
-        let idempotence_id = utils::random_string(10);
-
-        let request = Request::Move {
-            n: node.hash.clone(),
-            t: "4".to_string(),
-            i: idempotence_id,
-        };
-
-        let responses = self.send_requests(&[request]).await?;
-
-        match responses.as_slice() {
-            [Response::Error(ErrorCode::OK)] => {}
-            [Response::Error(code)] => {
-                return Err(Error::from(*code));
-            }
-            _ => {
-                return Err(Error::InvalidResponseType);
-            }
-        }
-
-        Ok(())
-    }
-
     /// Deletes a node.
     pub async fn delete_node(&self, node: &Node) -> Result<()> {
         let idempotence_id = utils::random_string(10);
