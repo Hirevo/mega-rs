@@ -25,6 +25,33 @@ pub enum NodeKind {
     Unknown = u8::MAX,
 }
 
+impl NodeKind {
+    /// Returns whether the node is a regular file.
+    pub fn is_file(self) -> bool {
+        matches!(self, NodeKind::File)
+    }
+
+    /// Returns whether the node is a regular folder.
+    pub fn is_folder(self) -> bool {
+        matches!(self, NodeKind::Folder)
+    }
+
+    /// Returns whether the node is specifically the Cloud Drive root.
+    pub fn is_root(self) -> bool {
+        matches!(self, NodeKind::Root)
+    }
+
+    /// Returns whether the node is specifically the Rubbish Bin root.
+    pub fn is_rubbish_bin(self) -> bool {
+        matches!(self, NodeKind::Trash)
+    }
+
+    /// Returns whether the node is specifically the Inbox root.
+    pub fn is_inbox(self) -> bool {
+        matches!(self, NodeKind::Inbox)
+    }
+}
+
 /// Represents a request message to MEGA's API.
 ///
 /// Keep in mind that these message definitions have been somewhat reverse-engineered from MEGA's C++ SDK, and are, therefore, not complete.

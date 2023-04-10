@@ -10,7 +10,7 @@ fn construct_tree_node(nodes: &mega::Nodes, node: &mega::Node) -> StringTreeNode
         .children()
         .iter()
         .filter_map(|hash| nodes.get_node_by_hash(hash))
-        .partition(|node| node.kind() == mega::NodeKind::Folder);
+        .partition(|node| node.kind().is_folder());
 
     folders.sort_unstable_by_key(|node| node.name());
     files.sort_unstable_by_key(|node| node.name());
