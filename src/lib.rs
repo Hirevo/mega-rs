@@ -276,7 +276,7 @@ impl Client {
         for file in &files.nodes {
             match file.kind {
                 NodeKind::File | NodeKind::Folder => {
-                    let (file_user, file_key) = file.key.as_ref().unwrap().split_once(":").unwrap();
+                    let (file_user, file_key) = file.key.as_ref().unwrap().split_once(':').unwrap();
 
                     if file.user == file_user {
                         // self-owned file or folder
@@ -395,7 +395,7 @@ impl Client {
 
         let shared_url = Url::parse(url)?;
         let (node_kind, node_id) = {
-            let segments: Vec<&str> = shared_url.path().split("/").skip(1).collect();
+            let segments: Vec<&str> = shared_url.path().split('/').skip(1).collect();
             match segments.as_slice() {
                 ["file", file_id] => (NodeKind::File, file_id.to_string()),
                 ["folder", folder_id] => (NodeKind::Folder, folder_id.to_string()),
@@ -410,7 +410,7 @@ impl Client {
             let fragment = shared_url
                 .fragment()
                 .ok_or_else(|| Error::Other("invalid URL format".into()))?;
-            let key = fragment.split_once("/").map_or(fragment, |it| it.0);
+            let key = fragment.split_once('/').map_or(fragment, |it| it.0);
             BASE64_URL_SAFE_NO_PAD.decode(key)?
         };
 
@@ -480,7 +480,7 @@ impl Client {
                 for file in &files.nodes {
                     match file.kind {
                         NodeKind::File | NodeKind::Folder => {
-                            let (_, file_key) = file.key.as_ref().unwrap().split_once(":").unwrap();
+                            let (_, file_key) = file.key.as_ref().unwrap().split_once(':').unwrap();
 
                             let mut file_key = BASE64_URL_SAFE_NO_PAD.decode(file_key)?;
                             utils::decrypt_ebc_in_place(&node_key, &mut file_key);
@@ -1079,11 +1079,7 @@ impl Nodes {
 
     /// Gets a node, identified by its path.
     pub fn get_node_by_path(&self, path: &str) -> Option<&Node> {
-        let path = if path.starts_with('/') {
-            &path[1..]
-        } else {
-            path
-        };
+        let path = path.strip_prefix('/').unwrap_or(path);
 
         let Some((root, path)) = path.split_once('/') else {
             return self.roots().find(|node| node.name == path);
