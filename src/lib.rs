@@ -115,6 +115,12 @@ impl ClientBuilder {
     }
 }
 
+impl Default for ClientBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// The MEGA API Client itself.
 pub struct Client {
     /// The client's state.
@@ -126,7 +132,7 @@ pub struct Client {
 impl Client {
     /// Creates a builder to initialize a [`Client`] instance.
     pub fn builder() -> ClientBuilder {
-        ClientBuilder::new()
+        ClientBuilder::default()
     }
 
     /// Sends a request to the MEGA API.
