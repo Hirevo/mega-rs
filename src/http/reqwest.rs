@@ -103,7 +103,7 @@ impl HttpClient for reqwest::Client {
         Err(Error::MaxRetriesReached)
     }
 
-    async fn download(&self, url: Url) -> Result<Pin<Box<dyn AsyncRead>>, Error> {
+    async fn get(&self, url: Url) -> Result<Pin<Box<dyn AsyncRead>>, Error> {
         let stream = self
             .get(url)
             .send()
@@ -114,22 +114,29 @@ impl HttpClient for reqwest::Client {
         Ok(Box::pin(stream.into_async_read()))
     }
 
-    async fn upload(
+    async fn post(
         &self,
         url: Url,
-        size: u64,
         body: Pin<Box<dyn AsyncRead + Send + Sync>>,
-    ) -> Result<Option<String>, Error> {
+        content_length: Option<u64>,
+    ) -> Result<Pin<Box<dyn AsyncRead>>, Error> {
         let stream = FramedRead::new(body.compat(), BytesCodec::new());
         let body = Body::wrap_stream(stream);
-        let completion_handle = self
-            .post(url)
-            .header("content-length", size)
-            .body(body)
-            .send()
-            .await?
-            .text()
-            .await?;
-        Ok((!completion_handle.is_empty()).then_some(completion_handle))
+        let stream = {
+            let mut builder = self.post(url);
+
+            if let Some(content_length) = content_length {
+                builder = builder.header("content-length", content_length);
+            }
+
+            builder
+                .body(body)
+                .send()
+                .await?
+                .bytes_stream()
+                .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+        };
+
+        Ok(Box::pin(stream.into_async_read()))
     }
 }

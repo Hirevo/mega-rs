@@ -22,6 +22,9 @@ pub enum Error {
     /// Failed to find node.
     #[error("failed to find node")]
     NodeNotFound,
+    /// Failed to find node attribute.
+    #[error("failed to find node attribute")]
+    NodeAttributeNotFound,
     /// Could not get a meaningful response after maximum retries.
     #[error("could not get a meaningful response after maximum retries")]
     MaxRetriesReached,

@@ -55,14 +55,14 @@ pub trait HttpClient {
         query_params: &[(&str, &str)],
     ) -> Result<Vec<Response>, Error>;
 
-    /// Initiate a file download from the given URL.
-    async fn download(&self, url: Url) -> Result<Pin<Box<dyn AsyncRead>>, Error>;
+    /// Initiates a simple GET request, returning the response body as a reader.
+    async fn get(&self, url: Url) -> Result<Pin<Box<dyn AsyncRead>>, Error>;
 
-    /// Initiate a file upload from the given URL.
-    async fn upload(
+    /// Initiates a simple POST request, with body and optional `content-length`, returning the response body as a reader.
+    async fn post(
         &self,
         url: Url,
-        size: u64,
         body: Pin<Box<dyn AsyncRead + Send + Sync>>,
-    ) -> Result<Option<String>, Error>;
+        content_length: Option<u64>,
+    ) -> Result<Pin<Box<dyn AsyncRead>>, Error>;
 }

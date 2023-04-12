@@ -188,6 +188,28 @@ pub enum Request {
         #[serde(rename = "i")]
         i: String,
     },
+    /// Message for uploading file attributes (also used for downloading file attributes).
+    #[serde(rename = "ufa")]
+    UploadFileAttributes {
+        /// The hash (or handle) of the involved MEGA node.
+        h: Option<String>,
+        /// The file attribute handler.
+        fah: Option<String>,
+        /// The size of the file to upload.
+        s: Option<u64>,
+        /// Whether to use HTTPS (by setting it to 2, rarely needed because everything is encrypted already).
+        ssl: i32,
+        /// TODO
+        r: Option<i32>,
+    },
+    /// Message for completing the upload of file attributes.
+    #[serde(rename = "pfa")]
+    PutFileAttributes {
+        /// The hash (or handle) of the involved MEGA node.
+        n: String,
+        /// The file attributes' encoded string.
+        fa: String,
+    },
 }
 
 /// Represents a response message from MEGA's API.
@@ -220,6 +242,10 @@ pub enum Response {
     Move(MoveResponse),
     /// Response for the `Request::Delete` message.
     Delete(DeleteResponse),
+    /// Response for the `Request::UploadFileAttributes` message.
+    UploadFileAttributes(UploadFileAttributesResponse),
+    /// Response for the `Request::PutFileAttributes` message.
+    PutFileAttributes(PutFileAttributesResponse),
 }
 
 /// Response for the `Request::PreLogin` message.
@@ -326,6 +352,8 @@ pub struct FileNode {
     pub kind: NodeKind,
     #[serde(rename = "a")]
     pub attr: String,
+    #[serde(rename = "fa")]
+    pub file_attr: Option<String>,
     #[serde(rename = "h")]
     pub hash: String,
     #[serde(rename = "p")]
@@ -404,6 +432,9 @@ pub struct UploadAttributes {
     /// The completion handle to validate the node's upload.
     #[serde(rename = "h")]
     pub completion_handle: String,
+    /// The file attributes' encoded string.
+    #[serde(rename = "fa")]
+    pub file_attr: Option<String>,
 }
 
 /// Response for the `Request::UploadComplete` message.
@@ -417,6 +448,20 @@ pub struct UploadCompleteResponse {
 /// Response for the `Request::SetFileAttributes` message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetFileAttributesResponse {}
+
+/// Response for the `Request::UploadFileAttributes` message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UploadFileAttributesResponse {
+    /// The upload URL for the attribute.
+    pub p: String,
+}
+
+/// Response for the `Request::PutFileAttributes` message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PutFileAttributesResponse {
+    #[serde(rename = "fa")]
+    fa: String,
+}
 
 /// Response for the `Request::Move` message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -481,6 +526,14 @@ impl Request {
             Request::Delete { .. } => {
                 let response = json::from_value(value)?;
                 Response::Delete(response)
+            }
+            Request::UploadFileAttributes { .. } => {
+                let response = json::from_value(value)?;
+                Response::UploadFileAttributes(response)
+            }
+            Request::PutFileAttributes { .. } => {
+                let response = json::from_value(value)?;
+                Response::PutFileAttributes(PutFileAttributesResponse { fa: response })
             }
         };
 

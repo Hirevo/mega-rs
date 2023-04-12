@@ -8,7 +8,7 @@ use aes::Aes128;
 use base64::prelude::{Engine, BASE64_STANDARD_NO_PAD, BASE64_URL_SAFE_NO_PAD};
 use chrono::{DateTime, TimeZone, Utc};
 use cipher::generic_array::GenericArray;
-use cipher::{BlockEncrypt, BlockEncryptMut, KeyInit, KeyIvInit, StreamCipher};
+use cipher::{BlockDecryptMut, BlockEncrypt, BlockEncryptMut, KeyInit, KeyIvInit, StreamCipher};
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use url::Url;
 
@@ -280,6 +280,32 @@ impl Client {
         let mut nodes = HashMap::<String, Node>::default();
 
         for file in &files.nodes {
+            let (thumbnail_handle, preview_image_handle) =
+                if let Some(file_attr) = file.file_attr.as_ref() {
+                    let mut thumbnail_handle = None;
+                    let mut preview_image_handle = None;
+
+                    let iterator = file_attr
+                        .split('/')
+                        .filter_map(|it| it.split_once(':')?.1.split_once('*'));
+
+                    for (key, val) in iterator {
+                        match key {
+                            "0" => {
+                                thumbnail_handle = Some(val.to_string());
+                            }
+                            "1" => {
+                                preview_image_handle = Some(val.to_string());
+                            }
+                            _ => continue,
+                        }
+                    }
+
+                    (thumbnail_handle, preview_image_handle)
+                } else {
+                    (None, None)
+                };
+
             match file.kind {
                 NodeKind::File | NodeKind::Folder => {
                     let (file_user, file_key) = file.key.as_ref().unwrap().split_once(':').unwrap();
@@ -317,6 +343,8 @@ impl Client {
                             key: file_key,
                             created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
                             download_id: None,
+                            thumbnail_handle,
+                            preview_image_handle,
                         };
 
                         if let Some(parent) = nodes.get_mut(&file.parent) {
@@ -343,6 +371,8 @@ impl Client {
                         key: <_>::default(),
                         created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
                         download_id: None,
+                        thumbnail_handle,
+                        preview_image_handle,
                     };
                     nodes.insert(node.hash.clone(), node);
                 }
@@ -363,6 +393,8 @@ impl Client {
                         key: <_>::default(),
                         created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
                         download_id: None,
+                        thumbnail_handle,
+                        preview_image_handle,
                     };
                     nodes.insert(node.hash.clone(), node);
                 }
@@ -383,6 +415,8 @@ impl Client {
                         key: <_>::default(),
                         created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
                         download_id: None,
+                        thumbnail_handle,
+                        preview_image_handle,
                     };
                     nodes.insert(node.hash.clone(), node);
                 }
@@ -460,6 +494,8 @@ impl Client {
                     key: node_key,
                     created_at: None,
                     download_id: Some(node_id),
+                    thumbnail_handle: None,
+                    preview_image_handle: None,
                 };
 
                 nodes.insert(node.hash.clone(), node);
@@ -502,6 +538,32 @@ impl Client {
                                 )?
                             };
 
+                            let (thumbnail_handle, preview_image_handle) =
+                                if let Some(file_attr) = file.file_attr.as_ref() {
+                                    let mut thumbnail_handle = None;
+                                    let mut preview_image_handle = None;
+
+                                    let iterator = file_attr
+                                        .split('/')
+                                        .filter_map(|it| it.split_once(':')?.1.split_once('*'));
+
+                                    for (key, val) in iterator {
+                                        match key {
+                                            "0" => {
+                                                thumbnail_handle = Some(val.to_string());
+                                            }
+                                            "1" => {
+                                                preview_image_handle = Some(val.to_string());
+                                            }
+                                            _ => continue,
+                                        }
+                                    }
+
+                                    (thumbnail_handle, preview_image_handle)
+                                } else {
+                                    (None, None)
+                                };
+
                             let node = Node {
                                 name: attrs.name,
                                 hash: file.hash.clone(),
@@ -518,6 +580,8 @@ impl Client {
                                 key: file_key,
                                 created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
                                 download_id: Some(node_id.clone()),
+                                thumbnail_handle,
+                                preview_image_handle,
                             };
 
                             if let Some(parent) = nodes.get_mut(&file.parent) {
@@ -601,7 +665,7 @@ impl Client {
         let url =
             Url::parse(format!("{0}/{1}-{2}", response.download_url, 0, response.size).as_str())?;
 
-        let mut reader = self.client.download(url).await?.take(node.size);
+        let mut reader = self.client.get(url).await?.take(node.size);
 
         let mut file_iv = [0u8; 16];
 
@@ -755,9 +819,19 @@ impl Client {
         };
 
         let url = Url::parse(format!("{0}/{1}", response.upload_url, 0).as_str())?;
-        let fut_2 = self.client.upload(url, size, Box::pin(pipe_reader));
+        let fut_2 = async move {
+            let mut reader = self
+                .client
+                .post(url, Box::pin(pipe_reader), Some(size))
+                .await?;
 
-        let (mut final_mac_data, maybe_completion_handle) = futures::try_join!(fut_1, fut_2)?;
+            let mut buffer = Vec::default();
+            reader.read_to_end(&mut buffer).await?;
+
+            Ok::<_, Error>(String::from_utf8_lossy(&buffer).into_owned())
+        };
+
+        let (mut final_mac_data, completion_handle) = futures::try_join!(fut_1, fut_2)?;
 
         for i in 0..4 {
             final_mac_data[i] = final_mac_data[i] ^ final_mac_data[i + 4];
@@ -789,7 +863,8 @@ impl Client {
             kind: NodeKind::File,
             key: key_b64,
             attr: file_attr_buffer,
-            completion_handle: maybe_completion_handle.unwrap_or_default(),
+            completion_handle,
+            file_attr: None,
         };
 
         let idempotence_id = utils::random_string(10);
@@ -813,6 +888,224 @@ impl Client {
         };
 
         Ok(())
+    }
+
+    /// Downloads the node's attribute payload into the given writer, if it exists.
+    pub(crate) async fn download_attribute<W: AsyncWrite>(
+        &self,
+        kind: AttributeKind,
+        attr_handle: &str,
+        node: &Node,
+        writer: W,
+    ) -> Result<()> {
+        let request = Request::UploadFileAttributes {
+            h: None,
+            fah: Some(attr_handle.to_string()),
+            s: None,
+            ssl: if self.state.https { 2 } else { 0 },
+            r: Some(1),
+        };
+        let responses = self.send_requests(&[request]).await?;
+
+        let [Response::UploadFileAttributes(response)] = responses.as_slice() else {
+            return Err(Error::InvalidResponseType);
+        };
+
+        let attr_handle = BASE64_URL_SAFE_NO_PAD.decode(attr_handle)?;
+
+        let mut reader = {
+            let url = format!("{0}/{1}", response.p, kind as u8);
+            let url = Url::parse(url.as_str())?;
+            let len = attr_handle.len();
+            let body = futures::io::Cursor::new(attr_handle);
+            self.client
+                .post(url, Box::pin(body), Some(len as _))
+                .await?
+        };
+
+        let _id = {
+            let mut hash = [0u8; 8];
+            reader.read_exact(&mut hash).await?;
+            hash
+        };
+
+        let len = {
+            let mut len_bytes = [0u8; 4];
+            reader.read_exact(&mut len_bytes).await?;
+            u32::from_le_bytes(len_bytes)
+        };
+
+        let file_key = {
+            let mut file_key = node.key.clone();
+            utils::unmerge_key_mac(&mut file_key);
+            file_key
+        };
+
+        let mut cbc = cbc::Decryptor::<Aes128>::new(file_key[..16].into(), (&[0u8; 16]).into());
+
+        futures::pin_mut!(writer);
+        let mut reader = reader.take(len.into());
+
+        let mut block = Vec::default();
+        loop {
+            block.clear();
+            let bytes_read = (&mut reader).take(16).read_to_end(&mut block).await?;
+
+            if bytes_read == 0 {
+                break;
+            }
+
+            if bytes_read < 16 {
+                let padding = std::iter::repeat(0).take(16 - bytes_read);
+                block.extend(padding);
+            }
+
+            cbc.decrypt_block_mut(block.as_mut_slice().into());
+            writer.write_all(&block[..bytes_read]).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Downloads the node's thumbnail image into the given writer, if it exists.
+    pub async fn download_thumbnail<W: AsyncWrite>(&self, node: &Node, writer: W) -> Result<()> {
+        let Some(attr_handle) = node.thumbnail_handle.as_deref() else {
+            return Err(Error::NodeAttributeNotFound);
+        };
+
+        self.download_attribute(AttributeKind::Thumbnail, attr_handle, node, writer)
+            .await
+    }
+
+    /// Downloads the node's preview image into the given writer, if it exists.
+    pub async fn download_preview_image<W: AsyncWrite>(
+        &self,
+        node: &Node,
+        writer: W,
+    ) -> Result<()> {
+        let Some(preview_image_handle) = node.preview_image_handle.as_deref() else {
+            return Err(Error::NodeAttributeNotFound);
+        };
+
+        self.download_attribute(
+            AttributeKind::PreviewImage,
+            preview_image_handle,
+            node,
+            writer,
+        )
+        .await
+    }
+
+    /// Uploads an attribute's payload for an existing node from a given reader.
+    pub(crate) async fn upload_attribute<R: AsyncRead>(
+        &self,
+        kind: AttributeKind,
+        node: &Node,
+        size: u64,
+        reader: R,
+    ) -> Result<()> {
+        let request = Request::UploadFileAttributes {
+            h: Some(node.hash.clone()),
+            fah: None,
+            s: Some(size),
+            ssl: if self.state.https { 2 } else { 0 },
+            r: None,
+        };
+        let responses = self.send_requests(&[request]).await?;
+
+        let [Response::UploadFileAttributes(response)] = responses.as_slice() else {
+            return Err(Error::InvalidResponseType);
+        };
+
+        let file_key = {
+            let mut file_key = node.key.clone();
+            utils::unmerge_key_mac(&mut file_key);
+            file_key
+        };
+
+        let mut cbc = cbc::Encryptor::<Aes128>::new(file_key[..16].into(), (&[0u8; 16]).into());
+
+        let (pipe_reader, mut pipe_writer) = sluice::pipe::pipe();
+
+        let fut_1 = async move {
+            let reader = reader.take(size);
+            futures::pin_mut!(reader);
+
+            let mut block = Vec::default();
+            loop {
+                block.clear();
+                let bytes_read = (&mut reader).take(16).read_to_end(&mut block).await?;
+
+                if bytes_read == 0 {
+                    break;
+                }
+
+                if bytes_read < 16 {
+                    let padding = std::iter::repeat(0).take(16 - bytes_read);
+                    block.extend(padding);
+                }
+
+                cbc.encrypt_block_mut(block.as_mut_slice().into());
+                pipe_writer.write_all(&block[..bytes_read]).await?;
+            }
+
+            Ok(())
+        };
+
+        let url = Url::parse(format!("{0}/{1}", response.p, kind as u8).as_str())?;
+        let fut_2 = async move {
+            let mut reader = self
+                .client
+                .post(url, Box::pin(pipe_reader), Some(size))
+                .await?;
+
+            let mut buffer = Vec::default();
+            reader.read_to_end(&mut buffer).await?;
+
+            Ok::<_, Error>(BASE64_URL_SAFE_NO_PAD.encode(&buffer))
+        };
+
+        let (_, fah) = futures::try_join!(fut_1, fut_2)?;
+
+        let request = Request::PutFileAttributes {
+            n: node.hash.clone(),
+            fa: format!("{0}*{fah}", kind as u8),
+        };
+        let responses = self.send_requests(&[request]).await?;
+
+        match responses.as_slice() {
+            [Response::PutFileAttributes(_)] => {}
+            [Response::Error(code)] => {
+                return Err(Error::from(*code));
+            }
+            _ => {
+                return Err(Error::InvalidResponseType);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Uploads a thumbnail image for an existing node from a given reader.
+    pub async fn upload_thumbnail<R: AsyncRead>(
+        &self,
+        node: &Node,
+        size: u64,
+        reader: R,
+    ) -> Result<()> {
+        self.upload_attribute(AttributeKind::Thumbnail, node, size, reader)
+            .await
+    }
+
+    /// Uploads a preview image for an existing node from a given reader.
+    pub async fn upload_preview_image<R: AsyncRead>(
+        &self,
+        node: &Node,
+        size: u64,
+        reader: R,
+    ) -> Result<()> {
+        self.upload_attribute(AttributeKind::PreviewImage, node, size, reader)
+            .await
     }
 
     /// Creates a new directory.
@@ -847,6 +1140,7 @@ impl Client {
             key: key_b64,
             attr: file_attr_buffer,
             completion_handle: String::from("xxxxxxxx"),
+            file_attr: None,
         };
 
         let idempotence_id = utils::random_string(10);
@@ -985,6 +1279,8 @@ pub struct Node {
     pub(crate) created_at: Option<DateTime<Utc>>,
     /// The ID of the public link this node is from.
     pub(crate) download_id: Option<String>,
+    pub(crate) thumbnail_handle: Option<String>,
+    pub(crate) preview_image_handle: Option<String>,
 }
 
 impl Node {
@@ -1026,6 +1322,16 @@ impl Node {
     /// Returns the ID of the public link this node is from.
     pub fn download_id(&self) -> Option<&str> {
         self.download_id.as_deref()
+    }
+
+    /// Returns whether this node has a associated thumbnail.
+    pub fn has_thumbnail(&self) -> bool {
+        self.thumbnail_handle.is_some()
+    }
+
+    /// Returns whether this node has an associated preview image.
+    pub fn has_preview_image(&self) -> bool {
+        self.preview_image_handle.is_some()
     }
 }
 
@@ -1136,4 +1442,11 @@ impl IntoIterator for Nodes {
     fn into_iter(self) -> Self::IntoIter {
         self.nodes.into_values()
     }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash)]
+pub(crate) enum AttributeKind {
+    Thumbnail = 0,
+    PreviewImage = 1,
 }
