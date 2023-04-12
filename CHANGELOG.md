@@ -11,13 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `Client::{download_thumbnail, download_preview_image}`.
+- Added `Client::{upload_thumbnail, upload_preview_image}`.
+- Added `Node::{has_thumbnail, has_preview_image}`.
+- Implemented `Default` trait for `ClientBuilder`.
+- Added `NodeKind::{is_file, is_folder, is_root, is_rubbish_bin, is_inbox}`.
+
 ### Changed
 
 - Changed `Error` to implement both `Send` and `Sync`.
+- Slightly simplified `HttpClient` trait.
 
 ### Fixed
 
 - Fixed issue with incorrect MAC computation.
+- Added appropriate size limits on I/O readers and writers.
+
+### Removed
+
+- Removed `Client::move_to_rubbish_bin` function.
 
 [0.3.0] - 2023-04-09
 --------------------
