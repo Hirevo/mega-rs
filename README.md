@@ -22,6 +22,8 @@ Features
 - [x] Timeout support
 - [x] Retries (exponential-backoff) support
 - [ ] Parallel connections (downloading/uploading multiple file chunks in parallel)
+- [x] Downloading thumbnails and preview images
+- [x] Uploading thumbnails and preview images
 - [x] Shared links support
   - [x] Downloading from shared links
   - [ ] Uploading to shared folders
