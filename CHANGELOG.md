@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+[0.4.0] - 2023-04-12
+--------------------
+
+### Added
+
 - Added `Client::{download_thumbnail, download_preview_image}`.
 - Added `Client::{upload_thumbnail, upload_preview_image}`.
 - Added `Node::{has_thumbnail, has_preview_image}`.
