@@ -13,7 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Changed `mega::Result<T>` to `mega::Result<T, E = mega::Error>`.
+
 ### Fixed
+
+- Resolved issues when decrypting attributes for shared nodes.
 
 ### Removed
 
