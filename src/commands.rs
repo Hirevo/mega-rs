@@ -90,6 +90,19 @@ pub enum Request {
     /// Message for getting information about the current user.
     #[serde(rename = "ug")]
     UserInfo {},
+    /// Message for fetching user-related attributes.
+    #[serde(rename = "uga")]
+    UserAttributes {
+        /// The user's handle.
+        #[serde(rename = "u")]
+        user_handle: String,
+        /// The name of the attribute to fetch.
+        #[serde(rename = "ua")]
+        attribute: String,
+        /// `v` should be 1 (otherwise the output is not a JSON object).
+        #[serde(rename = "v")]
+        v: i32,
+    },
     /// Message for getting the current storage quotas.
     #[serde(rename = "uq")]
     Quota {
@@ -226,6 +239,8 @@ pub enum Response {
     Logout(LogoutResponse),
     /// Response for the `Request::UserInfo` message.
     UserInfo(UserInfoResponse),
+    /// Response for the `Request::UserAttributes` message.
+    UserAttributes(UserAttributesResponse),
     /// Response for the `Request::Quota` message.
     Quota(QuotaResponse),
     /// Response for the `Request::FetchNodes` message.
@@ -303,6 +318,20 @@ pub struct UserInfoResponse {
     pub ts: String,
 }
 
+/// Response for the `Request::UserAttributes` message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UserAttributesResponse {
+    /// The version identifier for the attribute (for caching purposes, it seems).
+    #[serde(rename = "v")]
+    pub v: String,
+    /// The attribute's value.
+    #[serde(rename = "av")]
+    pub attr_value: String,
+    /// Catch-all for the remaining fields (if any).
+    #[serde(flatten)]
+    pub other: HashMap<String, Value>,
+}
+
 /// Response for the `Request::Quota` message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QuotaResponse {
@@ -322,6 +351,8 @@ pub struct QuotaResponse {
 pub struct FileMetadata {
     #[serde(rename = "h")]
     pub hash: String,
+    #[serde(rename = "ha")]
+    pub hash_auth: String,
     #[serde(rename = "k")]
     pub key: String,
 }
@@ -494,6 +525,10 @@ impl Request {
             Request::UserInfo { .. } => {
                 let response = json::from_value(value)?;
                 Response::UserInfo(response)
+            }
+            Request::UserAttributes { .. } => {
+                let response = json::from_value(value)?;
+                Response::UserAttributes(response)
             }
             Request::Quota { .. } => {
                 let response = json::from_value(value)?;

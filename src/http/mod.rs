@@ -19,6 +19,8 @@ pub struct UserSession {
     pub(crate) sid: String,
     /// The user's master key.
     pub(crate) key: [u8; 16],
+    /// The user's handle.
+    pub(crate) user_handle: String,
 }
 
 /// Stores the data representing the client's state.
