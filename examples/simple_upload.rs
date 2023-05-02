@@ -28,7 +28,7 @@ async fn run(mega: &mut mega::Client, file: &str, folder: &str) -> mega::Result<
 
     let bar = ProgressBar::new(size);
     bar.set_style(progress_bar_style());
-    bar.set_message("uploading file...");
+    bar.set_message(format!("uploading {0}...", node.name()));
     let bar = Arc::new(bar);
 
     let reader = {
@@ -41,7 +41,7 @@ async fn run(mega: &mut mega::Client, file: &str, folder: &str) -> mega::Result<
     mega.upload_node(&node, file_name, size, reader.compat())
         .await?;
 
-    bar.finish_with_message("file uploaded !");
+    bar.finish_with_message(format!("{0} uploaded !", node.name()));
 
     Ok(())
 }

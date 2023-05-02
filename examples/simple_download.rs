@@ -24,7 +24,7 @@ async fn run(mega: &mut mega::Client, distant_file_path: &str) -> mega::Result<(
 
     let bar = ProgressBar::new(node.size());
     bar.set_style(progress_bar_style());
-    bar.set_message("downloading file...");
+    bar.set_message(format!("downloading {0}...", node.name()));
 
     let file = File::create(node.name()).await?;
 
@@ -42,7 +42,7 @@ async fn run(mega: &mut mega::Client, distant_file_path: &str) -> mega::Result<(
     mega.download_node(node, writer).await?;
     handle.await.unwrap()?;
 
-    bar.finish_with_message(format!("{} downloaded !", node.name()));
+    bar.finish_with_message(format!("{0} downloaded !", node.name()));
 
     Ok(())
 }

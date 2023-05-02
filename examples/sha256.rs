@@ -23,7 +23,7 @@ async fn run(mega: &mut mega::Client, distant_file_path: &str) -> mega::Result<(
 
     let bar = ProgressBar::new(node.size());
     bar.set_style(progress_bar_style());
-    bar.set_message("hashing file...");
+    bar.set_message(format!("hashing {0}...", node.name()));
 
     let mut hasher = futures::io::AllowStdIo::new(sha2::Sha256::new());
 
@@ -48,7 +48,7 @@ async fn run(mega: &mut mega::Client, distant_file_path: &str) -> mega::Result<(
 
     let hash = hasher.into_inner().finalize();
     let hash = hex::encode_upper(hash);
-    println!("{name}: {hash}", name = node.name());
+    println!("{0}: {hash}", node.name());
 
     Ok(())
 }
@@ -67,9 +67,7 @@ async fn main() {
     let mut mega = mega::Client::builder().build(http_client).unwrap();
 
     mega.login(&email, &password, None).await.unwrap();
-
     let result = run(&mut mega, distant_file_path).await;
-
     mega.logout().await.unwrap();
 
     result.unwrap();
