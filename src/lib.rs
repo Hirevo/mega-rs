@@ -787,6 +787,12 @@ impl Client {
         size: u64,
         reader: R,
     ) -> Result<()> {
+        let session = self
+            .state
+            .session
+            .as_ref()
+            .ok_or(Error::MissingUserSession)?;
+
         let request = Request::Upload {
             s: size,
             ssl: if self.state.https { 2 } else { 0 },
@@ -901,7 +907,6 @@ impl Client {
         key[24..].copy_from_slice(&final_mac_data[..8]);
         utils::merge_key_mac(&mut key);
 
-        let session = self.state.session.as_ref().unwrap();
         utils::encrypt_ebc_in_place(&session.key, &mut key);
 
         let key_b64 = BASE64_URL_SAFE_NO_PAD.encode(&key);
@@ -1157,6 +1162,12 @@ impl Client {
 
     /// Creates a new directory.
     pub async fn create_dir(&self, parent: &Node, name: &str) -> Result<()> {
+        let session = self
+            .state
+            .session
+            .as_ref()
+            .ok_or(Error::MissingUserSession)?;
+
         let (file_key, file_iv_seed): ([u8; 16], [u8; 8]) = rand::random();
 
         let mut file_iv = [0u8; 16];
@@ -1177,7 +1188,6 @@ impl Client {
         key[16..].copy_from_slice(&file_iv[..8]);
         utils::merge_key_mac(&mut key);
 
-        let session = self.state.session.as_ref().unwrap();
         utils::encrypt_ebc_in_place(&session.key, &mut key);
 
         let key_b64 = BASE64_URL_SAFE_NO_PAD.encode(&key);
