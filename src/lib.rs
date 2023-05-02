@@ -240,6 +240,7 @@ impl Client {
         self.state.session = Some(UserSession {
             sid,
             key: key[..16].try_into().unwrap(),
+            user_handle: response.u.clone(),
         });
 
         Ok(())
@@ -262,11 +263,22 @@ impl Client {
 
     /// Fetches all nodes from the user's own MEGA account.
     pub async fn fetch_own_nodes(&self) -> Result<Nodes> {
-        let request = Request::FetchNodes { c: 1, r: None };
-        let responses = self.send_requests(&[request]).await?;
+        let session = self
+            .state
+            .session
+            .as_ref()
+            .ok_or(Error::MissingUserSession)?;
 
-        let files = match responses.as_slice() {
-            [Response::FetchNodes(files)] => files,
+        let request_1 = Request::FetchNodes { c: 1, r: None };
+        let request_2 = Request::UserAttributes {
+            user_handle: session.user_handle.clone(),
+            attribute: "^!keys".to_string(),
+            v: 1,
+        };
+        let responses = self.send_requests(&[request_1, request_2]).await?;
+
+        let (files, attr) = match responses.as_slice() {
+            [Response::FetchNodes(files), Response::UserAttributes(attr)] => (files, attr),
             [Response::Error(code)] => {
                 return Err(Error::from(*code));
             }
@@ -275,9 +287,17 @@ impl Client {
             }
         };
 
-        let session = self.state.session.as_ref().unwrap();
-
         let mut nodes = HashMap::<String, Node>::default();
+        let share_keys = utils::extract_share_keys(&session, attr)?;
+
+        // This method of getting share keys seems to be unneeded.
+        // (maybe an earlier implementation that got decommissionned/deprecated ?).
+        //
+        // for share in files.ok.iter().flatten() {
+        //     let mut share_key = BASE64_URL_SAFE_NO_PAD.decode(&share.key)?;
+        //     utils::decrypt_ebc_in_place(&session.key, &mut share_key);
+        //     share_keys.insert(share.hash.clone(), share_key);
+        // }
 
         for file in &files.nodes {
             let (thumbnail_handle, preview_image_handle) =
@@ -308,51 +328,78 @@ impl Client {
 
             match file.kind {
                 NodeKind::File | NodeKind::Folder => {
-                    let (file_user, file_key) = file.key.as_ref().unwrap().split_once(':').unwrap();
+                    // if let Some((_, s_key)) = file.s_user.as_deref().zip(file.s_key.as_deref()) {
+                    //     let mut share_key = BASE64_URL_SAFE_NO_PAD.decode(s_key)?;
+                    //     utils::decrypt_ebc_in_place(&session.key, &mut share_key);
+                    //     utils::decrypt_ebc_in_place(&share_key, &mut file_key);
+                    //     share_keys.insert(file.hash.clone(), share_key.clone());
+                    // }
 
-                    if file.user == file_user {
-                        // self-owned file or folder
+                    let Some(file_key) = file.key.as_deref() else {
+                        continue;
+                    };
 
-                        let mut file_key = BASE64_URL_SAFE_NO_PAD.decode(file_key)?;
-                        utils::decrypt_ebc_in_place(&session.key, &mut file_key);
+                    let maybe_file_key = file_key.split('/').find_map(|key| {
+                        let (file_user, file_key) = key.split_once(':')?;
+                        let mut file_key = BASE64_URL_SAFE_NO_PAD.decode(file_key).ok()?;
 
-                        let attrs = {
-                            let mut file_key = file_key.clone();
-                            utils::unmerge_key_mac(&mut file_key);
+                        // TODO: MEGA includes in its web client a check to see if both halves of `file_key`
+                        //       are identical to each other. This is apparently done to prevent an attacker from
+                        //       being able to produce an all-zeroes AES key (by XOR-ing the two halves after EBC decryption).
+                        //       It's a bit unclear what we should do in our specific case, so it isn't yet implemented here.
 
-                            let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
-                            FileAttributes::decrypt_and_unpack(
-                                &file_key[..16],
-                                buffer.as_mut_slice(),
-                            )?
-                        };
-
-                        let node = Node {
-                            name: attrs.name,
-                            hash: file.hash.clone(),
-                            size: file.sz.unwrap_or(0),
-                            kind: file.kind,
-                            parent: (!file.parent.is_empty()).then(|| file.parent.clone()),
-                            children: nodes
-                                .values()
-                                .filter_map(|it| {
-                                    let parent = it.parent.as_ref()?;
-                                    (parent == &file.hash).then(|| file.hash.clone())
-                                })
-                                .collect(),
-                            key: file_key,
-                            created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
-                            download_id: None,
-                            thumbnail_handle,
-                            preview_image_handle,
-                        };
-
-                        if let Some(parent) = nodes.get_mut(&file.parent) {
-                            parent.children.push(node.hash.clone());
+                        if file_user == session.user_handle {
+                            // regular owned file or folder
+                            utils::decrypt_ebc_in_place(&session.key, &mut file_key);
+                            return Some(file_key);
                         }
 
-                        nodes.insert(node.hash.clone(), node);
+                        if let Some(share_key) = share_keys.get(file_user) {
+                            // shared file or folder
+                            utils::decrypt_ebc_in_place(&share_key, &mut file_key);
+                            return Some(file_key);
+                        }
+
+                        None
+                    });
+
+                    let Some(file_key) = maybe_file_key else {
+                        continue;
+                    };
+
+                    let attrs = {
+                        let mut file_key = file_key.clone();
+                        utils::unmerge_key_mac(&mut file_key);
+
+                        let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
+                        FileAttributes::decrypt_and_unpack(&file_key[..16], buffer.as_mut_slice())?
+                    };
+
+                    let node = Node {
+                        name: attrs.name,
+                        hash: file.hash.clone(),
+                        size: file.sz.unwrap_or(0),
+                        kind: file.kind,
+                        parent: (!file.parent.is_empty()).then(|| file.parent.clone()),
+                        children: nodes
+                            .values()
+                            .filter_map(|it| {
+                                let parent = it.parent.as_ref()?;
+                                (parent == &file.hash).then(|| file.hash.clone())
+                            })
+                            .collect(),
+                        key: file_key,
+                        created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
+                        download_id: None,
+                        thumbnail_handle,
+                        preview_image_handle,
+                    };
+
+                    if let Some(parent) = nodes.get_mut(&file.parent) {
+                        parent.children.push(node.hash.clone());
                     }
+
+                    nodes.insert(node.hash.clone(), node);
                 }
                 NodeKind::Root => {
                     let node = Node {
@@ -420,7 +467,9 @@ impl Client {
                     };
                     nodes.insert(node.hash.clone(), node);
                 }
-                NodeKind::Unknown => continue,
+                NodeKind::Unknown => {
+                    continue;
+                }
             }
         }
 
@@ -1279,7 +1328,9 @@ pub struct Node {
     pub(crate) created_at: Option<DateTime<Utc>>,
     /// The ID of the public link this node is from.
     pub(crate) download_id: Option<String>,
+    /// The handle of the node's thumbnail.
     pub(crate) thumbnail_handle: Option<String>,
+    /// The handle of the node's preview image.
     pub(crate) preview_image_handle: Option<String>,
 }
 

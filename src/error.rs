@@ -2,11 +2,14 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use thiserror::Error;
 
 /// The `Result` type for this library.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The main error type for this library.
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Missing user session.
+    #[error("missing user session (consider logging in first)")]
+    MissingUserSession,
     /// Invalid server response type.
     #[error("invalid server response type")]
     InvalidResponseType,
@@ -45,8 +48,17 @@ pub enum Error {
     #[error("base64 encode error: {0}")]
     Base64DecodeError(#[from] base64::DecodeError),
     /// PBKDF2 error.
-    #[error("pbkdf2 error: {0}")]
+    #[error("PBKDF2 error: {0}")]
     Pbkdf2Error(#[from] pbkdf2::password_hash::Error),
+    /// HKDF error (invalid length).
+    #[error("HKDF error: {0}")]
+    HkdfInvalidLengthError(#[from] hkdf::InvalidLength),
+    /// HKDF error (invalid PRK length).
+    #[error("HKDF error: {0}")]
+    HkdfInvalidPrkLengthError(#[from] hkdf::InvalidPrkLength),
+    /// AES-GCM error.
+    #[error("AES-GCM error: {0}")]
+    AesGcmError(#[from] aes_gcm::Error),
     /// MEGA error (error codes from API).
     #[error("MEGA error: {0}")]
     MegaError(#[from] ErrorCode),
