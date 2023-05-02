@@ -2,7 +2,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use thiserror::Error;
 
 /// The `Result` type for this library.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The main error type for this library.
 #[derive(Debug, Error)]
