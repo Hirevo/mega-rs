@@ -10,6 +10,9 @@ pub enum Error {
     /// Missing user session.
     #[error("missing user session (consider logging in first)")]
     MissingUserSession,
+    /// Invalid (or unsupported) public URL format.
+    #[error("invalid (or unsupported) public URL format")]
+    InvalidPublicUrlFormat,
     /// Invalid server response type.
     #[error("invalid server response type")]
     InvalidResponseType,

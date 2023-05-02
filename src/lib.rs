@@ -490,15 +490,13 @@ impl Client {
                 ["folder", folder_id] => (NodeKind::Folder, folder_id.to_string()),
                 _ => {
                     // TODO: replace with its own error enum variant.
-                    return Err(Error::Other("invalid URL format".into()));
+                    return Err(Error::InvalidPublicUrlFormat);
                 }
             }
         };
 
         let node_key = {
-            let fragment = shared_url
-                .fragment()
-                .ok_or_else(|| Error::Other("invalid URL format".into()))?;
+            let fragment = shared_url.fragment().ok_or(Error::InvalidPublicUrlFormat)?;
             let key = fragment.split_once('/').map_or(fragment, |it| it.0);
             BASE64_URL_SAFE_NO_PAD.decode(key)?
         };
