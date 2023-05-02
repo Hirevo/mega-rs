@@ -73,7 +73,7 @@ pub enum Request {
         user: String,
         /// The user's handle.
         #[serde(rename = "uh")]
-        hash: String,
+        user_handle: String,
         /// The session key to use.
         #[serde(rename = "sek", skip_serializing_if = "Option::is_none")]
         session_key: Option<String>,
@@ -135,7 +135,7 @@ pub enum Request {
         /// TODO
         #[serde(rename = "p", skip_serializing_if = "Option::is_none")]
         p: Option<String>,
-        /// The hash of the node to download.
+        /// The handle of the node to download.
         #[serde(rename = "n", skip_serializing_if = "Option::is_none")]
         n: Option<String>,
     },
@@ -152,7 +152,7 @@ pub enum Request {
     /// Message for completing the upload for a new node.
     #[serde(rename = "p")]
     UploadComplete {
-        /// The hash of the target parent node.
+        /// The handle of the target parent node.
         #[serde(rename = "t")]
         t: String,
         /// The attributes for the new node.
@@ -171,7 +171,7 @@ pub enum Request {
         /// The new key to use for the node.
         #[serde(rename = "key", skip_serializing_if = "Option::is_none")]
         key: Option<String>,
-        /// The hash of the involved node.
+        /// The handle of the involved node.
         #[serde(rename = "n")]
         n: String,
         /// The idempotence token (needed for request retries).
@@ -181,10 +181,10 @@ pub enum Request {
     /// Message for moving a node to a different location.
     #[serde(rename = "m")]
     Move {
-        /// The hash of the node to move.
+        /// The handle of the node to move.
         #[serde(rename = "n")]
         n: String,
-        /// The hash of the target parent node.
+        /// The handle of the target parent node.
         #[serde(rename = "t")]
         t: String,
         /// The idempotence token (needed for request retries).
@@ -194,7 +194,7 @@ pub enum Request {
     /// Message for deleting a node.
     #[serde(rename = "d")]
     Delete {
-        /// The hash of the node to delete.
+        /// The handle of the node to delete.
         #[serde(rename = "n")]
         n: String,
         /// The idempotence token (needed for request retries).
@@ -204,7 +204,7 @@ pub enum Request {
     /// Message for uploading file attributes (also used for downloading file attributes).
     #[serde(rename = "ufa")]
     UploadFileAttributes {
-        /// The hash (or handle) of the involved MEGA node.
+        /// The handle of the involved MEGA node.
         h: Option<String>,
         /// The file attribute handler.
         fah: Option<String>,
@@ -218,7 +218,7 @@ pub enum Request {
     /// Message for completing the upload of file attributes.
     #[serde(rename = "pfa")]
     PutFileAttributes {
-        /// The hash (or handle) of the involved MEGA node.
+        /// The handle of the involved MEGA node.
         n: String,
         /// The file attributes' encoded string.
         fa: String,
@@ -386,7 +386,7 @@ pub struct FileNode {
     #[serde(rename = "fa")]
     pub file_attr: Option<String>,
     #[serde(rename = "h")]
-    pub hash: String,
+    pub handle: String,
     #[serde(rename = "p")]
     pub parent: String,
     #[serde(rename = "ts")]

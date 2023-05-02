@@ -206,7 +206,7 @@ impl Client {
 
         let request = Request::Login {
             user: email.clone(),
-            hash: user_handle.clone(),
+            user_handle: user_handle.clone(),
             si: None,
             mfa: mfa.map(|it| it.to_string()),
             session_key: None,
@@ -296,7 +296,7 @@ impl Client {
         // for share in files.ok.iter().flatten() {
         //     let mut share_key = BASE64_URL_SAFE_NO_PAD.decode(&share.key)?;
         //     utils::decrypt_ebc_in_place(&session.key, &mut share_key);
-        //     share_keys.insert(share.hash.clone(), share_key);
+        //     share_keys.insert(share.handle.clone(), share_key);
         // }
 
         for file in &files.nodes {
@@ -332,7 +332,7 @@ impl Client {
                     //     let mut share_key = BASE64_URL_SAFE_NO_PAD.decode(s_key)?;
                     //     utils::decrypt_ebc_in_place(&session.key, &mut share_key);
                     //     utils::decrypt_ebc_in_place(&share_key, &mut file_key);
-                    //     share_keys.insert(file.hash.clone(), share_key.clone());
+                    //     share_keys.insert(file.handle.clone(), share_key.clone());
                     // }
 
                     let Some(file_key) = file.key.as_deref() else {
@@ -377,7 +377,7 @@ impl Client {
 
                     let node = Node {
                         name: attrs.name,
-                        hash: file.hash.clone(),
+                        handle: file.handle.clone(),
                         size: file.sz.unwrap_or(0),
                         kind: file.kind,
                         parent: (!file.parent.is_empty()).then(|| file.parent.clone()),
@@ -385,7 +385,7 @@ impl Client {
                             .values()
                             .filter_map(|it| {
                                 let parent = it.parent.as_ref()?;
-                                (parent == &file.hash).then(|| file.hash.clone())
+                                (parent == &file.handle).then(|| file.handle.clone())
                             })
                             .collect(),
                         key: file_key,
@@ -396,15 +396,15 @@ impl Client {
                     };
 
                     if let Some(parent) = nodes.get_mut(&file.parent) {
-                        parent.children.push(node.hash.clone());
+                        parent.children.push(node.handle.clone());
                     }
 
-                    nodes.insert(node.hash.clone(), node);
+                    nodes.insert(node.handle.clone(), node);
                 }
                 NodeKind::Root => {
                     let node = Node {
                         name: String::from("Root"),
-                        hash: file.hash.clone(),
+                        handle: file.handle.clone(),
                         size: file.sz.unwrap_or(0),
                         kind: NodeKind::Root,
                         parent: None,
@@ -412,7 +412,7 @@ impl Client {
                             .values()
                             .filter_map(|it| {
                                 let parent = it.parent.as_ref()?;
-                                (parent == &file.hash).then(|| file.hash.clone())
+                                (parent == &file.handle).then(|| file.handle.clone())
                             })
                             .collect(),
                         key: <_>::default(),
@@ -421,12 +421,12 @@ impl Client {
                         thumbnail_handle,
                         preview_image_handle,
                     };
-                    nodes.insert(node.hash.clone(), node);
+                    nodes.insert(node.handle.clone(), node);
                 }
                 NodeKind::Inbox => {
                     let node = Node {
                         name: String::from("Inbox"),
-                        hash: file.hash.clone(),
+                        handle: file.handle.clone(),
                         size: file.sz.unwrap_or(0),
                         kind: NodeKind::Inbox,
                         parent: None,
@@ -434,7 +434,7 @@ impl Client {
                             .values()
                             .filter_map(|it| {
                                 let parent = it.parent.as_ref()?;
-                                (parent == &file.hash).then(|| file.hash.clone())
+                                (parent == &file.handle).then(|| file.handle.clone())
                             })
                             .collect(),
                         key: <_>::default(),
@@ -443,12 +443,12 @@ impl Client {
                         thumbnail_handle,
                         preview_image_handle,
                     };
-                    nodes.insert(node.hash.clone(), node);
+                    nodes.insert(node.handle.clone(), node);
                 }
                 NodeKind::Trash => {
                     let node = Node {
                         name: String::from("Trash"),
-                        hash: file.hash.clone(),
+                        handle: file.handle.clone(),
                         size: file.sz.unwrap_or(0),
                         kind: NodeKind::Trash,
                         parent: None,
@@ -456,7 +456,7 @@ impl Client {
                             .values()
                             .filter_map(|it| {
                                 let parent = it.parent.as_ref()?;
-                                (parent == &file.hash).then(|| file.hash.clone())
+                                (parent == &file.handle).then(|| file.handle.clone())
                             })
                             .collect(),
                         key: <_>::default(),
@@ -465,7 +465,7 @@ impl Client {
                         thumbnail_handle,
                         preview_image_handle,
                     };
-                    nodes.insert(node.hash.clone(), node);
+                    nodes.insert(node.handle.clone(), node);
                 }
                 NodeKind::Unknown => {
                     continue;
@@ -533,7 +533,7 @@ impl Client {
 
                 let node = Node {
                     name: attrs.name,
-                    hash: node_id.clone(),
+                    handle: node_id.clone(),
                     size: file.size,
                     kind: NodeKind::File,
                     parent: None,
@@ -545,7 +545,7 @@ impl Client {
                     preview_image_handle: None,
                 };
 
-                nodes.insert(node.hash.clone(), node);
+                nodes.insert(node.handle.clone(), node);
 
                 Ok(Nodes::new(nodes))
             }
@@ -613,7 +613,7 @@ impl Client {
 
                             let node = Node {
                                 name: attrs.name,
-                                hash: file.hash.clone(),
+                                handle: file.handle.clone(),
                                 size: file.sz.unwrap_or(0),
                                 kind: file.kind,
                                 parent: (!file.parent.is_empty()).then(|| file.parent.clone()),
@@ -621,7 +621,7 @@ impl Client {
                                     .values()
                                     .filter_map(|it| {
                                         let parent = it.parent.as_ref()?;
-                                        (parent == &file.hash).then(|| file.hash.clone())
+                                        (parent == &file.handle).then(|| file.handle.clone())
                                     })
                                     .collect(),
                                 key: file_key,
@@ -632,10 +632,10 @@ impl Client {
                             };
 
                             if let Some(parent) = nodes.get_mut(&file.parent) {
-                                parent.children.push(node.hash.clone());
+                                parent.children.push(node.handle.clone());
                             }
 
-                            nodes.insert(node.hash.clone(), node);
+                            nodes.insert(node.handle.clone(), node);
                         }
                         _ => unreachable!(),
                     }
@@ -663,21 +663,21 @@ impl Client {
         })
     }
 
-    /// Downloads a file, identified by its hash, into the given writer.
+    /// Downloads a file into the given writer.
     pub async fn download_node<W: AsyncWrite>(&self, node: &Node, writer: W) -> Result<()> {
         let responses = if let Some(download_id) = node.download_id() {
-            let request = if node.hash.as_str() == download_id {
+            let request = if node.handle.as_str() == download_id {
                 Request::Download {
                     g: 1,
                     ssl: if self.state.https { 2 } else { 0 },
                     n: None,
-                    p: Some(node.hash.clone()),
+                    p: Some(node.handle.clone()),
                 }
             } else {
                 Request::Download {
                     g: 1,
                     ssl: if self.state.https { 2 } else { 0 },
-                    n: Some(node.hash.clone()),
+                    n: Some(node.handle.clone()),
                     p: None,
                 }
             };
@@ -690,7 +690,7 @@ impl Client {
                 g: 1,
                 ssl: if self.state.https { 2 } else { 0 },
                 p: None,
-                n: Some(node.hash.clone()),
+                n: Some(node.handle.clone()),
             };
 
             self.send_requests(&[request]).await?
@@ -922,7 +922,7 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::UploadComplete {
-            t: parent.hash.clone(),
+            t: parent.handle.clone(),
             n: [attrs],
             i: idempotence_id,
         };
@@ -1057,7 +1057,7 @@ impl Client {
         reader: R,
     ) -> Result<()> {
         let request = Request::UploadFileAttributes {
-            h: Some(node.hash.clone()),
+            h: Some(node.handle.clone()),
             fah: None,
             s: Some(size),
             ssl: if self.state.https { 2 } else { 0 },
@@ -1120,7 +1120,7 @@ impl Client {
         let (_, fah) = futures::try_join!(fut_1, fut_2)?;
 
         let request = Request::PutFileAttributes {
-            n: node.hash.clone(),
+            n: node.handle.clone(),
             fa: format!("{0}*{fah}", kind as u8),
         };
         let responses = self.send_requests(&[request]).await?;
@@ -1203,7 +1203,7 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::UploadComplete {
-            t: parent.hash.clone(),
+            t: parent.handle.clone(),
             n: [attrs],
             i: idempotence_id,
         };
@@ -1244,7 +1244,7 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::SetFileAttributes {
-            n: node.hash.clone(),
+            n: node.handle.clone(),
             key: None,
             attr: file_attr_buffer,
             i: idempotence_id,
@@ -1270,8 +1270,8 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::Move {
-            n: node.hash.clone(),
-            t: parent.hash.clone(),
+            n: node.handle.clone(),
+            t: parent.handle.clone(),
             i: idempotence_id,
         };
 
@@ -1295,7 +1295,7 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::Delete {
-            n: node.hash.clone(),
+            n: node.handle.clone(),
             i: idempotence_id,
         };
 
@@ -1320,15 +1320,15 @@ impl Client {
 pub struct Node {
     /// The name of the node.
     pub(crate) name: String,
-    /// The hash (or handle) of the node.
-    pub(crate) hash: String,
+    /// The handle of the node.
+    pub(crate) handle: String,
     /// The size (in bytes) of the node.
     pub(crate) size: u64,
     /// The kind of the node.
     pub(crate) kind: NodeKind,
-    /// The hash (or handle) of the node's parent.
+    /// The handle of the node's parent.
     pub(crate) parent: Option<String>,
-    /// The hashes (or handles) of the node's children.
+    /// The handles of the node's children.
     pub(crate) children: Vec<String>,
     /// The de-obfuscated file key of the node.
     pub(crate) key: Vec<u8>,
@@ -1348,9 +1348,9 @@ impl Node {
         self.name.as_str()
     }
 
-    /// Returns the hash (or handle) of the node.
-    pub fn hash(&self) -> &str {
-        self.hash.as_str()
+    /// Returns the handle of the node.
+    pub fn handle(&self) -> &str {
+        self.handle.as_str()
     }
 
     /// Returns the size (in bytes) of the node.
@@ -1363,12 +1363,12 @@ impl Node {
         self.kind
     }
 
-    /// Returns the hash (or handle) of the node's parent.
+    /// Returns the handle of the node's parent.
     pub fn parent(&self) -> Option<&str> {
         self.parent.as_deref()
     }
 
-    /// Returns the hashes (or handles) of the node's children.
+    /// Returns the handles of the node's children.
     pub fn children(&self) -> &[String] {
         self.children.as_slice()
     }
@@ -1396,13 +1396,13 @@ impl Node {
 
 /// Represents a collection of nodes from MEGA.
 pub struct Nodes {
-    /// The nodes from MEGA, keyed by their hash (or handle).
+    /// The nodes from MEGA, keyed by their handle.
     pub(crate) nodes: HashMap<String, Node>,
-    /// The hash (or handle) of the root node for the Cloud Drive.
+    /// The handle of the root node for the Cloud Drive.
     pub(crate) cloud_drive: Option<String>,
-    /// The hash (or handle) of the root node for the Rubbish Bin.
+    /// The handle of the root node for the Rubbish Bin.
     pub(crate) rubbish_bin: Option<String>,
-    /// The hash (or handle) of the root node for the Inbox.
+    /// The handle of the root node for the Inbox.
     pub(crate) inbox: Option<String>,
 }
 
@@ -1410,13 +1410,13 @@ impl Nodes {
     pub(crate) fn new(nodes: HashMap<String, Node>) -> Self {
         let cloud_drive = nodes
             .values()
-            .find_map(|node| (node.kind == NodeKind::Root).then(|| node.hash.clone()));
+            .find_map(|node| node.kind.is_root().then(|| node.handle.clone()));
         let rubbish_bin = nodes
             .values()
-            .find_map(|node| (node.kind == NodeKind::Trash).then(|| node.hash.clone()));
+            .find_map(|node| node.kind.is_rubbish_bin().then(|| node.handle.clone()));
         let inbox = nodes
             .values()
-            .find_map(|node| (node.kind == NodeKind::Inbox).then(|| node.hash.clone()));
+            .find_map(|node| node.kind.is_inbox().then(|| node.handle.clone()));
 
         Self {
             nodes,
@@ -1443,9 +1443,9 @@ impl Nodes {
         })
     }
 
-    /// Gets a node, identified by its hash (or handle).
-    pub fn get_node_by_hash(&self, hash: &str) -> Option<&Node> {
-        self.nodes.get(hash)
+    /// Gets a node, identified by its handle.
+    pub fn get_node_by_handle(&self, handle: &str) -> Option<&Node> {
+        self.nodes.get(handle)
     }
 
     /// Gets a node, identified by its path.
@@ -1458,8 +1458,8 @@ impl Nodes {
 
         let root = self.roots().find(|node| node.name == root)?;
         path.split('/').fold(Some(root), |node, name| {
-            node?.children.iter().find_map(|hash| {
-                let found = self.get_node_by_hash(hash)?;
+            node?.children.iter().find_map(|handle| {
+                let found = self.get_node_by_handle(handle)?;
                 (found.name == name).then_some(found)
             })
         })
@@ -1467,20 +1467,20 @@ impl Nodes {
 
     /// Gets the root node for the Cloud Drive.
     pub fn cloud_drive(&self) -> Option<&Node> {
-        let hash = self.cloud_drive.as_ref()?;
-        self.nodes.get(hash)
+        let handle = self.cloud_drive.as_ref()?;
+        self.nodes.get(handle)
     }
 
     /// Gets the root node for the Inbox.
     pub fn inbox(&self) -> Option<&Node> {
-        let hash = self.inbox.as_ref()?;
-        self.nodes.get(hash)
+        let handle = self.inbox.as_ref()?;
+        self.nodes.get(handle)
     }
 
     /// Gets the root node for the Rubbish Bin.
     pub fn rubbish_bin(&self) -> Option<&Node> {
-        let hash = self.rubbish_bin.as_ref()?;
-        self.nodes.get(hash)
+        let handle = self.rubbish_bin.as_ref()?;
+        self.nodes.get(handle)
     }
 
     /// Creates a borrowing iterator over the nodes.

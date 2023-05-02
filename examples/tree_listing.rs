@@ -11,7 +11,7 @@ fn construct_tree_node(nodes: &mega::Nodes, node: &mega::Node) -> StringTreeNode
     let (mut folders, mut files): (Vec<_>, Vec<_>) = node
         .children()
         .iter()
-        .filter_map(|hash| nodes.get_node_by_hash(hash))
+        .filter_map(|hash| nodes.get_node_by_handle(hash))
         .partition(|node| node.kind().is_folder());
 
     folders.sort_unstable_by_key(|node| node.name());
