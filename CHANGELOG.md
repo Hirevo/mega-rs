@@ -11,9 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `Node::modified_at`.
+- Added `Node::checksum`.
+- Added `compute_sparse_checksum` standalone function.
+
 ### Changed
 
+- Renamed `Node::hash` to `Node::handle`.
+- Renamed `Nodes::get_node_by_hash` to `Nodes::get_node_by_handle`.
 - Changed `mega::Result<T>` to `mega::Result<T, E = mega::Error>`.
+- Changed `Node::created_at` to return an owned `DateTime<Utc>` instead of borrowing.
 
 ### Fixed
 
