@@ -1487,3 +1487,9 @@ pub(crate) enum AttributeKind {
     Thumbnail = 0,
     PreviewImage = 1,
 }
+
+impl From<AttributeKind> for u8 {
+    fn from(value: AttributeKind) -> Self {
+        value as u8
+    }
+}
