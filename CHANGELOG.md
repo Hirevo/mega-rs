@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Resolved issues when decrypting attributes for shared nodes.
+- Fixed handling of folder keys.
+- Fixed folder key generation in `Client::create_dir`.
 
 ### Removed
 
