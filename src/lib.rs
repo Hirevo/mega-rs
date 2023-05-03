@@ -422,7 +422,7 @@ impl Client {
                             })
                             .collect(),
                         key: <_>::default(),
-                        created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
+                        created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                         download_id: None,
                         thumbnail_handle,
                         preview_image_handle,
@@ -466,7 +466,7 @@ impl Client {
                             })
                             .collect(),
                         key: <_>::default(),
-                        created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
+                        created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                         download_id: None,
                         thumbnail_handle,
                         preview_image_handle,
