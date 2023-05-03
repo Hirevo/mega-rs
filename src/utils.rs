@@ -206,6 +206,30 @@ impl TryFrom<u8> for KeysAttrTag {
     }
 }
 
+pub(crate) fn extract_attachments(attrs_str: &str) -> (Option<String>, Option<String>) {
+    let mut thumbnail_handle = None;
+    let mut preview_image_handle = None;
+
+    // format: {bundle_id}:{attr_type}*{attr_handle}
+    let attrs = attrs_str
+        .split('/')
+        .filter_map(|it| it.split_once(':')?.1.split_once('*'));
+
+    for (kind, handle) in attrs {
+        match kind {
+            "0" => {
+                thumbnail_handle = Some(handle.to_string());
+            }
+            "1" => {
+                preview_image_handle = Some(handle.to_string());
+            }
+            _ => continue,
+        }
+    }
+
+    (thumbnail_handle, preview_image_handle)
+}
+
 pub(crate) fn extract_share_keys(
     session: &UserSession,
     attr: &UserAttributesResponse,

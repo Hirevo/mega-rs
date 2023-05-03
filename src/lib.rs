@@ -300,31 +300,11 @@ impl Client {
         // }
 
         for file in &files.nodes {
-            let (thumbnail_handle, preview_image_handle) =
-                if let Some(file_attr) = file.file_attr.as_ref() {
-                    let mut thumbnail_handle = None;
-                    let mut preview_image_handle = None;
-
-                    let iterator = file_attr
-                        .split('/')
-                        .filter_map(|it| it.split_once(':')?.1.split_once('*'));
-
-                    for (key, val) in iterator {
-                        match key {
-                            "0" => {
-                                thumbnail_handle = Some(val.to_string());
-                            }
-                            "1" => {
-                                preview_image_handle = Some(val.to_string());
-                            }
-                            _ => continue,
-                        }
-                    }
-
-                    (thumbnail_handle, preview_image_handle)
-                } else {
-                    (None, None)
-                };
+            let (thumbnail_handle, preview_image_handle) = file
+                .file_attr
+                .as_deref()
+                .map(|attr| utils::extract_attachments(attr))
+                .unwrap_or_default();
 
             match file.kind {
                 NodeKind::File | NodeKind::Folder => {
@@ -339,14 +319,39 @@ impl Client {
                         continue;
                     };
 
-                    let maybe_file_key = file_key.split('/').find_map(|key| {
+                    let Some(file_key) = file_key.split('/').find_map(|key| {
                         let (file_user, file_key) = key.split_once(':')?;
+
+                        if file_key.len() >= 44 {
+                            // Keys bigger than this size are using RSA instead of AES.
+                            // We don't support this as of right now.
+                            todo!();
+                        }
+
                         let mut file_key = BASE64_URL_SAFE_NO_PAD.decode(file_key).ok()?;
+
+                        // File keys are 32 bytes and folder keys are 16 bytes.
+                        // Other sizes are considered invalid.
+                        if (file.kind.is_file() && file_key.len() != 32)
+                            || (!file.kind.is_file() && file_key.len() != 16)
+                        {
+                            return None;
+                        }
 
                         // TODO: MEGA includes in its web client a check to see if both halves of `file_key`
                         //       are identical to each other. This is apparently done to prevent an attacker from
                         //       being able to produce an all-zeroes AES key (by XOR-ing the two halves after EBC decryption).
                         //       It's a bit unclear what we should do in our specific case, so it isn't yet implemented here.
+                        //
+                        //       Here would be how to implement such a check:
+                        //       ```
+                        //       if !self.state.allow_null_keys {
+                        //           let (fst, snd) = file_key.split_at(16);
+                        //           if fst == snd {
+                        //               return None;
+                        //           }
+                        //       }
+                        //       ```
 
                         if file_user == session.user_handle {
                             // regular owned file or folder
@@ -361,18 +366,19 @@ impl Client {
                         }
 
                         None
-                    });
-
-                    let Some(file_key) = maybe_file_key else {
+                    }) else {
                         continue;
                     };
 
-                    let attrs = {
+                    let attrs = if file.kind.is_file() {
                         let mut file_key = file_key.clone();
                         utils::unmerge_key_mac(&mut file_key);
 
                         let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
                         FileAttributes::decrypt_and_unpack(&file_key[..16], buffer.as_mut_slice())?
+                    } else {
+                        let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
+                        FileAttributes::decrypt_and_unpack(&file_key, buffer.as_mut_slice())?
                     };
 
                     let node = Node {
@@ -585,31 +591,11 @@ impl Client {
                                 )?
                             };
 
-                            let (thumbnail_handle, preview_image_handle) =
-                                if let Some(file_attr) = file.file_attr.as_ref() {
-                                    let mut thumbnail_handle = None;
-                                    let mut preview_image_handle = None;
-
-                                    let iterator = file_attr
-                                        .split('/')
-                                        .filter_map(|it| it.split_once(':')?.1.split_once('*'));
-
-                                    for (key, val) in iterator {
-                                        match key {
-                                            "0" => {
-                                                thumbnail_handle = Some(val.to_string());
-                                            }
-                                            "1" => {
-                                                preview_image_handle = Some(val.to_string());
-                                            }
-                                            _ => continue,
-                                        }
-                                    }
-
-                                    (thumbnail_handle, preview_image_handle)
-                                } else {
-                                    (None, None)
-                                };
+                            let (thumbnail_handle, preview_image_handle) = file
+                                .file_attr
+                                .as_deref()
+                                .map(|attr| utils::extract_attachments(attr))
+                                .unwrap_or_default();
 
                             let node = Node {
                                 name: attrs.name,
@@ -1168,10 +1154,7 @@ impl Client {
             .as_ref()
             .ok_or(Error::MissingUserSession)?;
 
-        let (file_key, file_iv_seed): ([u8; 16], [u8; 8]) = rand::random();
-
-        let mut file_iv = [0u8; 16];
-        file_iv[..8].copy_from_slice(&file_iv_seed);
+        let mut file_key: [u8; 16] = rand::random();
 
         let file_attr = FileAttributes {
             name: name.to_string(),
@@ -1183,14 +1166,9 @@ impl Client {
             BASE64_URL_SAFE_NO_PAD.encode(&buffer)
         };
 
-        let mut key = [0u8; 24];
-        key[..16].copy_from_slice(&file_key);
-        key[16..].copy_from_slice(&file_iv[..8]);
-        utils::merge_key_mac(&mut key);
+        utils::encrypt_ebc_in_place(&session.key, &mut file_key);
 
-        utils::encrypt_ebc_in_place(&session.key, &mut key);
-
-        let key_b64 = BASE64_URL_SAFE_NO_PAD.encode(&key);
+        let key_b64 = BASE64_URL_SAFE_NO_PAD.encode(&file_key);
 
         let attrs = UploadAttributes {
             kind: NodeKind::Folder,
@@ -1225,19 +1203,19 @@ impl Client {
 
     /// Renames a node.
     pub async fn rename_node(&self, node: &Node, name: &str) -> Result<()> {
-        let file_key = {
-            let mut file_key = node.key.clone();
-            utils::unmerge_key_mac(&mut file_key);
-            file_key
-        };
-
         let file_attr = FileAttributes {
             name: name.to_string(),
             c: None,
         };
 
-        let file_attr_buffer = {
+        let file_attr_buffer = if node.kind().is_file() {
+            let mut file_key = node.key.clone();
+            utils::unmerge_key_mac(&mut file_key);
+
             let buffer = file_attr.pack_and_encrypt(&file_key[..16])?;
+            BASE64_URL_SAFE_NO_PAD.encode(&buffer)
+        } else {
+            let buffer = file_attr.pack_and_encrypt(&node.key)?;
             BASE64_URL_SAFE_NO_PAD.encode(&buffer)
         };
 
