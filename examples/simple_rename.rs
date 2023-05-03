@@ -22,6 +22,7 @@ async fn run(mega: &mut mega::Client, distant_file_path: &str, new_name: &str) -
 async fn main() {
     let email = env::var("MEGA_EMAIL").expect("missing MEGA_EMAIL environment variable");
     let password = env::var("MEGA_PASSWORD").expect("missing MEGA_PASSWORD environment variable");
+    let mfa = env::var("MEGA_MFA").ok();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let [distant_file_path, new_name] = args.as_slice() else {
@@ -31,7 +32,7 @@ async fn main() {
     let http_client = reqwest::Client::new();
     let mut mega = mega::Client::builder().build(http_client).unwrap();
 
-    mega.login(&email, &password, None).await.unwrap();
+    mega.login(&email, &password, mfa.as_deref()).await.unwrap();
 
     let result = run(&mut mega, distant_file_path, new_name).await;
     mega.logout().await.unwrap();
