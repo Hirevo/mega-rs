@@ -33,7 +33,7 @@ async fn run(mega: &mut mega::Client, file: &str, folder: &str) -> mega::Result<
 
     let reader = {
         let bar = bar.clone();
-        file.report_progress(Duration::from_secs(1), move |bytes_read| {
+        file.report_progress(Duration::from_millis(100), move |bytes_read| {
             bar.set_position(bytes_read as u64);
         })
     };

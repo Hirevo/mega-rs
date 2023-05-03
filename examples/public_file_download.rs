@@ -43,7 +43,7 @@ async fn run(
 
         let reader = {
             let bar = bar.clone();
-            reader.report_progress(Duration::from_secs(1), move |bytes_read| {
+            reader.report_progress(Duration::from_millis(100), move |bytes_read| {
                 bar.set_position(bytes_read as u64);
             })
         };
