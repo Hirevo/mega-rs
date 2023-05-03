@@ -13,6 +13,9 @@ pub enum Error {
     /// Invalid (or unsupported) public URL format.
     #[error("invalid (or unsupported) public URL format")]
     InvalidPublicUrlFormat,
+    /// Invalid node checksum format.
+    #[error("invalid node checksum format")]
+    InvalidChecksumFormat,
     /// Invalid server response type.
     #[error("invalid server response type")]
     InvalidResponseType,
