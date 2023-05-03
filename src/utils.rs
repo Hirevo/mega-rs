@@ -106,7 +106,7 @@ pub(crate) fn prepare_key_v2(password: &[u8], salt: &str) -> Result<Vec<u8>> {
 }
 
 pub(crate) fn get_mpi(data: &[u8]) -> (rsa::BigUint, &[u8]) {
-    let len = (data[0] as usize * 256 + data[1] as usize + 7) >> 3;
+    let len = (usize::from(data[0]) * 256 + usize::from(data[1]) + 7) >> 3;
     let (head, tail) = data[2..].split_at(len);
     (rsa::BigUint::from_bytes_be(head), tail)
 }
@@ -298,7 +298,7 @@ mod tests {
 
     fn test_buffer(size: usize, start: usize, step: usize) -> Vec<u8> {
         (0..size)
-            .map(|i| ((start + i * step) % 255) as u8)
+            .map(|i| u8::try_from((start + i * step) % 255).unwrap())
             .collect()
     }
 

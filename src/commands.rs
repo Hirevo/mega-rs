@@ -390,7 +390,7 @@ pub struct FileNode {
     #[serde(rename = "p")]
     pub parent: String,
     #[serde(rename = "ts")]
-    pub ts: u64,
+    pub ts: i64,
     #[serde(rename = "u")]
     pub user: String,
     #[serde(rename = "k")]

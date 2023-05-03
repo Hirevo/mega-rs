@@ -37,7 +37,7 @@ async fn upload_and_download_test() {
     mega.upload_node(
         root,
         "mega-rs-test-file.txt",
-        size as _,
+        size.try_into().unwrap(),
         uploaded.as_bytes(),
     )
     .await

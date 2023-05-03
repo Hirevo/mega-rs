@@ -395,7 +395,7 @@ impl Client {
                             })
                             .collect(),
                         key: file_key,
-                        created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
+                        created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                         download_id: None,
                         thumbnail_handle,
                         preview_image_handle,
@@ -444,7 +444,7 @@ impl Client {
                             })
                             .collect(),
                         key: <_>::default(),
-                        created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
+                        created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                         download_id: None,
                         thumbnail_handle,
                         preview_image_handle,
@@ -611,7 +611,7 @@ impl Client {
                                     })
                                     .collect(),
                                 key: file_key,
-                                created_at: Some(Utc.timestamp_opt(file.ts as i64, 0).unwrap()),
+                                created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                                 download_id: Some(node_id.clone()),
                                 thumbnail_handle,
                                 preview_image_handle,
@@ -714,7 +714,7 @@ impl Client {
         let mut chunk_size: u64 = 131_072; // 2^17
         let mut cur_mac = [0u8; 16];
 
-        let mut buffer = Vec::with_capacity(chunk_size as usize);
+        let mut buffer = Vec::with_capacity(usize::try_from(chunk_size).unwrap());
 
         futures::pin_mut!(writer);
         loop {
@@ -813,7 +813,7 @@ impl Client {
             let mut final_mac =
                 cbc::Encryptor::<Aes128>::new((&file_key).into(), (&final_mac_data).into());
 
-            let mut buffer = Vec::with_capacity(chunk_size as usize);
+            let mut buffer = Vec::with_capacity(usize::try_from(chunk_size).unwrap());
 
             let reader = reader.take(size);
 
@@ -952,12 +952,12 @@ impl Client {
         let attr_handle = BASE64_URL_SAFE_NO_PAD.decode(attr_handle)?;
 
         let mut reader = {
-            let url = format!("{0}/{1}", response.p, kind as u8);
+            let url = format!("{0}/{1}", response.p, u8::from(kind));
             let url = Url::parse(url.as_str())?;
             let len = attr_handle.len();
             let body = futures::io::Cursor::new(attr_handle);
             self.client
-                .post(url, Box::pin(body), Some(len as _))
+                .post(url, Box::pin(body), Some(u64::try_from(len).unwrap()))
                 .await?
         };
 
@@ -1090,7 +1090,7 @@ impl Client {
             Ok(())
         };
 
-        let url = Url::parse(format!("{0}/{1}", response.p, kind as u8).as_str())?;
+        let url = Url::parse(format!("{0}/{1}", response.p, u8::from(kind)).as_str())?;
         let fut_2 = async move {
             let mut reader = self
                 .client
@@ -1107,7 +1107,7 @@ impl Client {
 
         let request = Request::PutFileAttributes {
             n: node.handle.clone(),
-            fa: format!("{0}*{fah}", kind as u8),
+            fa: format!("{0}*{fah}", u8::from(kind)),
         };
         let responses = self.send_requests(&[request]).await?;
 
