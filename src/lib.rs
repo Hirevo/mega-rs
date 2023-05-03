@@ -9,21 +9,25 @@ use base64::prelude::{Engine, BASE64_STANDARD_NO_PAD, BASE64_URL_SAFE_NO_PAD};
 use chrono::{DateTime, TimeZone, Utc};
 use cipher::generic_array::GenericArray;
 use cipher::{BlockDecryptMut, BlockEncrypt, BlockEncryptMut, KeyInit, KeyIvInit, StreamCipher};
+use fingerprint::NodeFingerprint;
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use url::Url;
 
+mod attributes;
 mod commands;
 mod error;
+mod fingerprint;
 mod http;
 mod utils;
 
 pub use crate::commands::NodeKind;
 pub use crate::error::{Error, ErrorCode, Result};
+pub use crate::fingerprint::compute_sparse_checksum;
 pub use crate::utils::StorageQuotas;
 
+use crate::attributes::NodeAttributes;
 use crate::commands::{Request, Response, UploadAttributes};
 use crate::http::{ClientState, HttpClient, UserSession};
-use crate::utils::FileAttributes;
 
 pub(crate) const DEFAULT_API_ORIGIN: &str = "https://g.api.mega.co.nz/";
 
@@ -375,11 +379,17 @@ impl Client {
                         utils::unmerge_key_mac(&mut file_key);
 
                         let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
-                        FileAttributes::decrypt_and_unpack(&file_key[..16], buffer.as_mut_slice())?
+                        NodeAttributes::decrypt_and_unpack(&file_key[..16], buffer.as_mut_slice())?
                     } else {
                         let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
-                        FileAttributes::decrypt_and_unpack(&file_key, buffer.as_mut_slice())?
+                        NodeAttributes::decrypt_and_unpack(&file_key, buffer.as_mut_slice())?
                     };
+
+                    let fingerprint = attrs.extract_fingerprint();
+
+                    let modified_at = (attrs.modified_at)
+                        .or_else(|| fingerprint.as_ref().map(|it| it.modified_at))
+                        .and_then(|timestamp| Utc.timestamp_opt(timestamp, 0).single());
 
                     let node = Node {
                         name: attrs.name,
@@ -395,7 +405,9 @@ impl Client {
                             })
                             .collect(),
                         key: file_key,
+                        checksum: fingerprint.map(|it| it.checksum),
                         created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
+                        modified_at,
                         download_id: None,
                         thumbnail_handle,
                         preview_image_handle,
@@ -422,7 +434,9 @@ impl Client {
                             })
                             .collect(),
                         key: <_>::default(),
+                        checksum: None,
                         created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
+                        modified_at: None,
                         download_id: None,
                         thumbnail_handle,
                         preview_image_handle,
@@ -444,7 +458,9 @@ impl Client {
                             })
                             .collect(),
                         key: <_>::default(),
+                        checksum: None,
                         created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
+                        modified_at: None,
                         download_id: None,
                         thumbnail_handle,
                         preview_image_handle,
@@ -466,7 +482,9 @@ impl Client {
                             })
                             .collect(),
                         key: <_>::default(),
+                        checksum: None,
                         created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
+                        modified_at: None,
                         download_id: None,
                         thumbnail_handle,
                         preview_image_handle,
@@ -534,8 +552,14 @@ impl Client {
                     utils::unmerge_key_mac(&mut node_key);
 
                     let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
-                    FileAttributes::decrypt_and_unpack(&node_key[..16], buffer.as_mut_slice())?
+                    NodeAttributes::decrypt_and_unpack(&node_key[..16], buffer.as_mut_slice())?
                 };
+
+                let fingerprint = attrs.extract_fingerprint();
+
+                let modified_at = (attrs.modified_at)
+                    .or_else(|| fingerprint.as_ref().map(|it| it.modified_at))
+                    .and_then(|timestamp| Utc.timestamp_opt(timestamp, 0).single());
 
                 let node = Node {
                     name: attrs.name,
@@ -545,7 +569,9 @@ impl Client {
                     parent: None,
                     children: Vec::default(),
                     key: node_key,
+                    checksum: fingerprint.map(|it| it.checksum),
                     created_at: None,
+                    modified_at,
                     download_id: Some(node_id),
                     thumbnail_handle: None,
                     preview_image_handle: None,
@@ -585,7 +611,7 @@ impl Client {
                                 utils::unmerge_key_mac(&mut file_key);
 
                                 let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
-                                FileAttributes::decrypt_and_unpack(
+                                NodeAttributes::decrypt_and_unpack(
                                     &file_key[..16],
                                     buffer.as_mut_slice(),
                                 )?
@@ -596,6 +622,12 @@ impl Client {
                                 .as_deref()
                                 .map(|attr| utils::extract_attachments(attr))
                                 .unwrap_or_default();
+
+                            let fingerprint = attrs.extract_fingerprint();
+
+                            let modified_at = (attrs.modified_at)
+                                .or_else(|| fingerprint.as_ref().map(|it| it.modified_at))
+                                .and_then(|timestamp| Utc.timestamp_opt(timestamp, 0).single());
 
                             let node = Node {
                                 name: attrs.name,
@@ -611,7 +643,9 @@ impl Client {
                                     })
                                     .collect(),
                                 key: file_key,
+                                checksum: fingerprint.map(|it| it.checksum),
                                 created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
+                                modified_at,
                                 download_id: Some(node_id.clone()),
                                 thumbnail_handle,
                                 preview_image_handle,
@@ -803,7 +837,8 @@ impl Client {
         let mut ctr = ctr::Ctr128BE::<Aes128>::new((&file_key).into(), (&file_iv).into());
         file_iv[8..].copy_from_slice(&file_iv_seed);
 
-        let (pipe_reader, mut pipe_writer) = sluice::pipe::pipe();
+        let (upload_reader, mut upload_writer) = sluice::pipe::pipe();
+        let (checksum_reader, mut checksum_writer) = sluice::pipe::pipe();
 
         let fut_1 = async move {
             let mut chunk_size: u64 = 131_072; // 2^17
@@ -830,10 +865,11 @@ impl Client {
                     break;
                 }
 
+                checksum_writer.write_all(&buffer).await?;
+
                 let (chunks, leftover) = buffer.split_at(buffer.len() - buffer.len() % 16);
 
                 let mut mac = cbc::Encryptor::<Aes128>::new((&file_key).into(), (&file_iv).into());
-
                 for chunk in chunks.chunks_exact(16) {
                     mac.encrypt_block_b2b_mut(chunk.into(), (&mut cur_mac).into());
                 }
@@ -847,7 +883,7 @@ impl Client {
                 final_mac.encrypt_block_b2b_mut((&cur_mac).into(), (&mut final_mac_data).into());
 
                 ctr.apply_keystream(&mut buffer);
-                pipe_writer.write_all(&buffer).await?;
+                upload_writer.write_all(&buffer).await?;
 
                 if chunk_size < 1_048_576 {
                     chunk_size += 131_072;
@@ -859,9 +895,13 @@ impl Client {
 
         let url = Url::parse(format!("{0}/{1}", response.upload_url, 0).as_str())?;
         let fut_2 = async move {
+            let size = usize::try_from(size).unwrap();
+            fingerprint::compute_sparse_checksum(checksum_reader, size).await
+        };
+        let fut_3 = async move {
             let mut reader = self
                 .client
-                .post(url, Box::pin(pipe_reader), Some(size))
+                .post(url, Box::pin(upload_reader), Some(size))
                 .await?;
 
             let mut buffer = Vec::default();
@@ -870,20 +910,26 @@ impl Client {
             Ok::<_, Error>(String::from_utf8_lossy(&buffer).into_owned())
         };
 
-        let (mut final_mac_data, completion_handle) = futures::try_join!(fut_1, fut_2)?;
+        let (mut final_mac_data, checksum, completion_handle) =
+            futures::try_join!(fut_1, fut_2, fut_3)?;
 
         for i in 0..4 {
             final_mac_data[i] = final_mac_data[i] ^ final_mac_data[i + 4];
             final_mac_data[i + 4] = final_mac_data[i + 8] ^ final_mac_data[i + 12];
         }
 
-        let file_attr = FileAttributes {
-            name: name.to_string(),
-            c: None,
+        let attributes = {
+            let fingerprint = NodeFingerprint::new(checksum, Utc::now().timestamp());
+            NodeAttributes {
+                name: name.to_string(),
+                fingerprint: Some(fingerprint.serialize()),
+                modified_at: Some(fingerprint.modified_at),
+                other: HashMap::default(),
+            }
         };
 
         let file_attr_buffer = {
-            let buffer = file_attr.pack_and_encrypt(&file_key)?;
+            let buffer = attributes.pack_and_encrypt(&file_key)?;
             BASE64_URL_SAFE_NO_PAD.encode(&buffer)
         };
 
@@ -1156,9 +1202,11 @@ impl Client {
 
         let mut file_key: [u8; 16] = rand::random();
 
-        let file_attr = FileAttributes {
+        let file_attr = NodeAttributes {
             name: name.to_string(),
-            c: None,
+            fingerprint: None,
+            modified_at: Some(Utc::now().timestamp()),
+            other: HashMap::default(),
         };
 
         let file_attr_buffer = {
@@ -1203,19 +1251,28 @@ impl Client {
 
     /// Renames a node.
     pub async fn rename_node(&self, node: &Node, name: &str) -> Result<()> {
-        let file_attr = FileAttributes {
-            name: name.to_string(),
-            c: None,
+        let attributes = {
+            let modified_at = Utc::now().timestamp();
+            let fingerprint = node
+                .checksum
+                .map(|checksum| NodeFingerprint::new(checksum, modified_at).serialize());
+
+            NodeAttributes {
+                name: name.to_string(),
+                fingerprint,
+                modified_at: Some(modified_at),
+                other: HashMap::default(),
+            }
         };
 
-        let file_attr_buffer = if node.kind().is_file() {
+        let attributes_buffer = if node.kind().is_file() {
             let mut file_key = node.key.clone();
             utils::unmerge_key_mac(&mut file_key);
 
-            let buffer = file_attr.pack_and_encrypt(&file_key[..16])?;
+            let buffer = attributes.pack_and_encrypt(&file_key[..16])?;
             BASE64_URL_SAFE_NO_PAD.encode(&buffer)
         } else {
-            let buffer = file_attr.pack_and_encrypt(&node.key)?;
+            let buffer = attributes.pack_and_encrypt(&node.key)?;
             BASE64_URL_SAFE_NO_PAD.encode(&buffer)
         };
 
@@ -1224,7 +1281,7 @@ impl Client {
         let request = Request::SetFileAttributes {
             n: node.handle.clone(),
             key: None,
-            attr: file_attr_buffer,
+            attr: attributes_buffer,
             i: idempotence_id,
         };
 
@@ -1310,8 +1367,12 @@ pub struct Node {
     pub(crate) children: Vec<String>,
     /// The de-obfuscated file key of the node.
     pub(crate) key: Vec<u8>,
+    /// The (potentially-sparse) checksum of the node.
+    pub(crate) checksum: Option<[u8; 16]>,
     /// The creation date of the node.
     pub(crate) created_at: Option<DateTime<Utc>>,
+    /// The last modification date of the node.
+    pub(crate) modified_at: Option<DateTime<Utc>>,
     /// The ID of the public link this node is from.
     pub(crate) download_id: Option<String>,
     /// The handle of the node's thumbnail.
@@ -1351,14 +1412,24 @@ impl Node {
         self.children.as_slice()
     }
 
+    /// Returns the last modified date of the node.
+    pub fn modified_at(&self) -> Option<DateTime<Utc>> {
+        self.modified_at
+    }
+
     /// Returns the creation date of the node.
-    pub fn created_at(&self) -> Option<&DateTime<Utc>> {
-        self.created_at.as_ref()
+    pub fn created_at(&self) -> Option<DateTime<Utc>> {
+        self.created_at
     }
 
     /// Returns the ID of the public link this node is from.
     pub fn download_id(&self) -> Option<&str> {
         self.download_id.as_deref()
+    }
+
+    /// Returns the sparse CRC32-based checksum of the node.
+    pub fn checksum(&self) -> Option<[u8; 16]> {
+        self.checksum
     }
 
     /// Returns whether this node has a associated thumbnail.

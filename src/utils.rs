@@ -4,12 +4,9 @@ use aes::cipher::generic_array::GenericArray;
 use aes::cipher::{BlockEncrypt, KeyInit};
 use aes::Aes128;
 use aes_gcm::{AeadInPlace, Aes128Gcm};
-use base64::prelude::BASE64_URL_SAFE_NO_PAD;
-use base64::Engine;
-use chrono::{DateTime, TimeZone, Utc};
-use cipher::{BlockDecrypt, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+use base64::prelude::{Engine, BASE64_URL_SAFE_NO_PAD};
+use cipher::BlockDecrypt;
 use hkdf::Hkdf;
-use json::Value;
 use pbkdf2::password_hash::{PasswordHasher, Salt};
 use pbkdf2::{Algorithm, Params, Pbkdf2};
 use rand::distributions::{Alphanumeric, DistString};
@@ -18,7 +15,7 @@ use sha2::Sha256;
 
 use crate::commands::UserAttributesResponse;
 use crate::http::UserSession;
-use crate::{Client, Node, Result};
+use crate::Result;
 
 /// Represents storage quotas from MEGA.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -27,45 +24,6 @@ pub struct StorageQuotas {
     pub memory_used: u64,
     /// The total amount of memory, used or unused (in bytes).
     pub memory_total: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct FileAttributes {
-    #[serde(rename = "n")]
-    pub name: String,
-    #[serde(rename = "c", skip_serializing_if = "Option::is_none")]
-    pub c: Option<String>,
-}
-
-impl FileAttributes {
-    pub(crate) fn decrypt_and_unpack(file_key: &[u8], buffer: &mut [u8]) -> Result<Self> {
-        let mut cbc = cbc::Decryptor::<Aes128>::new(file_key.into(), &<_>::default());
-        for chunk in buffer.chunks_exact_mut(16) {
-            cbc.decrypt_block_mut(chunk.into());
-        }
-
-        assert_eq!(&buffer[..4], b"MEGA");
-
-        let len = buffer.iter().take_while(|it| **it != b'\0').count();
-        let attrs = json::from_slice(&buffer[4..len])?;
-
-        Ok(attrs)
-    }
-
-    pub(crate) fn pack_and_encrypt(&self, file_key: &[u8]) -> Result<Vec<u8>> {
-        let mut buffer = b"MEGA".to_vec();
-        json::to_writer(&mut buffer, self)?;
-
-        let padding_len = (16 - buffer.len() % 16).min(15);
-        buffer.extend(std::iter::repeat(b'\0').take(padding_len));
-
-        let mut cbc = cbc::Encryptor::<Aes128>::new(file_key.into(), &<_>::default());
-        for chunk in buffer.chunks_exact_mut(16) {
-            cbc.encrypt_block_mut(chunk.into());
-        }
-
-        Ok(buffer)
-    }
 }
 
 pub(crate) fn prepare_key_v1(password: &[u8]) -> [u8; 16] {
@@ -206,30 +164,6 @@ impl TryFrom<u8> for KeysAttrTag {
     }
 }
 
-pub(crate) fn extract_attachments(attrs_str: &str) -> (Option<String>, Option<String>) {
-    let mut thumbnail_handle = None;
-    let mut preview_image_handle = None;
-
-    // format: {bundle_id}:{attr_type}*{attr_handle}
-    let attrs = attrs_str
-        .split('/')
-        .filter_map(|it| it.split_once(':')?.1.split_once('*'));
-
-    for (kind, handle) in attrs {
-        match kind {
-            "0" => {
-                thumbnail_handle = Some(handle.to_string());
-            }
-            "1" => {
-                preview_image_handle = Some(handle.to_string());
-            }
-            _ => continue,
-        }
-    }
-
-    (thumbnail_handle, preview_image_handle)
-}
-
 pub(crate) fn extract_share_keys(
     session: &UserSession,
     attr: &UserAttributesResponse,
@@ -290,6 +224,30 @@ pub(crate) fn extract_share_keys(
     }
 
     Ok(share_keys)
+}
+
+pub(crate) fn extract_attachments(attrs_str: &str) -> (Option<String>, Option<String>) {
+    let mut thumbnail_handle = None;
+    let mut preview_image_handle = None;
+
+    // format: {bundle_id}:{attr_type}*{attr_handle}
+    let attrs = attrs_str
+        .split('/')
+        .filter_map(|it| it.split_once(':')?.1.split_once('*'));
+
+    for (kind, handle) in attrs {
+        match kind {
+            "0" => {
+                thumbnail_handle = Some(handle.to_string());
+            }
+            "1" => {
+                preview_image_handle = Some(handle.to_string());
+            }
+            _ => continue,
+        }
+    }
+
+    (thumbnail_handle, preview_image_handle)
 }
 
 #[cfg(test)]
