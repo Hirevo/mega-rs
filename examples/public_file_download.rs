@@ -12,10 +12,23 @@ use indicatif::{ProgressBar, ProgressStyle};
 use tokio::fs::File;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
-async fn run(mega: &mut mega::Client, public_url: &str) -> mega::Result<()> {
+async fn run(
+    mega: &mut mega::Client,
+    public_url: &str,
+    distant_file_path: Option<&str>,
+) -> mega::Result<()> {
     let nodes = mega.fetch_public_nodes(public_url).await?;
 
-    let files = nodes.roots().filter(|node| node.kind().is_file());
+    let files: Vec<_> = match distant_file_path {
+        Some(distant_file_path) => {
+            let node = nodes
+                .get_node_by_path(distant_file_path)
+                .expect("could not find distant node by path");
+
+            vec![node]
+        }
+        None => nodes.roots().filter(|node| node.kind().is_file()).collect(),
+    };
 
     for node in files {
         let (reader, writer) = sluice::pipe::pipe();
@@ -49,14 +62,18 @@ async fn run(mega: &mut mega::Client, public_url: &str) -> mega::Result<()> {
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let [public_url] = args.as_slice() else {
-        panic!("expected 1 command-line argument: {{public_url}}");
+    let (public_url, distant_file_path) = match args.as_slice() {
+        [public_url] => (public_url.as_str(), None),
+        [public_url, distant_file_path] => (public_url.as_str(), Some(distant_file_path.as_str())),
+        _ => {
+            panic!("expected 1 or 2 command-line arguments: {{public_url}} {{distant_file_path}}");
+        }
     };
 
     let http_client = reqwest::Client::new();
     let mut mega = mega::Client::builder().build(http_client).unwrap();
 
-    run(&mut mega, public_url).await.unwrap();
+    run(&mut mega, public_url, distant_file_path).await.unwrap();
 }
 
 pub fn progress_bar_style() -> ProgressStyle {
