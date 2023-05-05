@@ -9,7 +9,6 @@ use base64::prelude::{Engine, BASE64_STANDARD_NO_PAD, BASE64_URL_SAFE_NO_PAD};
 use chrono::{DateTime, TimeZone, Utc};
 use cipher::generic_array::GenericArray;
 use cipher::{BlockDecryptMut, BlockEncrypt, BlockEncryptMut, KeyInit, KeyIvInit, StreamCipher};
-use fingerprint::NodeFingerprint;
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use url::Url;
 
@@ -22,11 +21,12 @@ mod utils;
 
 pub use crate::commands::NodeKind;
 pub use crate::error::{Error, ErrorCode, Result};
-pub use crate::fingerprint::compute_sparse_checksum;
+pub use crate::fingerprint::{compute_condensed_mac, compute_sparse_checksum};
 pub use crate::utils::StorageQuotas;
 
 use crate::attributes::NodeAttributes;
 use crate::commands::{Request, Response, UploadAttributes};
+use crate::fingerprint::NodeFingerprint;
 use crate::http::{ClientState, HttpClient, UserSession};
 
 pub(crate) const DEFAULT_API_ORIGIN: &str = "https://g.api.mega.co.nz/";
@@ -323,7 +323,7 @@ impl Client {
                         continue;
                     };
 
-                    let Some(file_key) = file_key.split('/').find_map(|key| {
+                    let Some(mut file_key) = file_key.split('/').find_map(|key| {
                         let (file_user, file_key) = key.split_once(':')?;
 
                         if file_key.len() >= 44 {
@@ -374,15 +374,24 @@ impl Client {
                         continue;
                     };
 
-                    let attrs = if file.kind.is_file() {
-                        let mut file_key = file_key.clone();
+                    let (aes_key, aes_iv, condensed_mac) = if file.kind.is_file() {
                         utils::unmerge_key_mac(&mut file_key);
 
-                        let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
-                        NodeAttributes::decrypt_and_unpack(&file_key[..16], buffer.as_mut_slice())?
+                        let (aes_key, rest) = file_key.split_at(16);
+                        let (aes_iv, condensed_mac) = rest.split_at(8);
+
+                        (
+                            aes_key.try_into().unwrap(),
+                            aes_iv.try_into().ok(),
+                            condensed_mac.try_into().ok(),
+                        )
                     } else {
+                        (file_key.try_into().unwrap(), None, None)
+                    };
+
+                    let attrs = {
                         let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
-                        NodeAttributes::decrypt_and_unpack(&file_key, buffer.as_mut_slice())?
+                        NodeAttributes::decrypt_and_unpack(&aes_key, buffer.as_mut_slice())?
                     };
 
                     let fingerprint = attrs.extract_fingerprint();
@@ -404,7 +413,9 @@ impl Client {
                                 (parent == &file.handle).then(|| file.handle.clone())
                             })
                             .collect(),
-                        key: file_key,
+                        aes_key,
+                        aes_iv,
+                        condensed_mac,
                         checksum: fingerprint.map(|it| it.checksum),
                         created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                         modified_at,
@@ -433,7 +444,9 @@ impl Client {
                                 (parent == &file.handle).then(|| file.handle.clone())
                             })
                             .collect(),
-                        key: <_>::default(),
+                        aes_key: <_>::default(),
+                        aes_iv: None,
+                        condensed_mac: None,
                         checksum: None,
                         created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                         modified_at: None,
@@ -457,7 +470,9 @@ impl Client {
                                 (parent == &file.handle).then(|| file.handle.clone())
                             })
                             .collect(),
-                        key: <_>::default(),
+                        aes_key: <_>::default(),
+                        aes_iv: None,
+                        condensed_mac: None,
                         checksum: None,
                         created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                         modified_at: None,
@@ -481,7 +496,9 @@ impl Client {
                                 (parent == &file.handle).then(|| file.handle.clone())
                             })
                             .collect(),
-                        key: <_>::default(),
+                        aes_key: <_>::default(),
+                        aes_iv: None,
+                        condensed_mac: None,
                         checksum: None,
                         created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                         modified_at: None,
@@ -519,7 +536,7 @@ impl Client {
             }
         };
 
-        let node_key = {
+        let mut node_key = {
             let fragment = shared_url.fragment().ok_or(Error::InvalidPublicUrlFormat)?;
             let key = fragment.split_once('/').map_or(fragment, |it| it.0);
             BASE64_URL_SAFE_NO_PAD.decode(key)?
@@ -547,12 +564,37 @@ impl Client {
                     }
                 };
 
-                let attrs = {
-                    let mut node_key = node_key.clone();
+                // TODO: MEGA includes in its web client a check to see if both halves of `file_key`
+                //       are identical to each other. This is apparently done to prevent an attacker from
+                //       being able to produce an all-zeroes AES key (by XOR-ing the two halves after EBC decryption).
+                //       It's a bit unclear what we should do in our specific case, so it isn't yet implemented here.
+                //
+                //       Here would be how to implement such a check:
+                //       ```
+                //       if !self.state.allow_null_keys {
+                //           let (fst, snd) = node_key.split_at(16);
+                //           if fst == snd {
+                //               return Err(Error::NullKeysDisallowed);
+                //           }
+                //       }
+                //       ```
+
+                let (aes_key, aes_iv, condensed_mac) = {
                     utils::unmerge_key_mac(&mut node_key);
 
+                    let (aes_key, rest) = node_key.split_at(16);
+                    let (aes_iv, condensed_mac) = rest.split_at(8);
+
+                    (
+                        aes_key.try_into().unwrap(),
+                        aes_iv.try_into().unwrap(),
+                        condensed_mac.try_into().unwrap(),
+                    )
+                };
+
+                let attrs = {
                     let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
-                    NodeAttributes::decrypt_and_unpack(&node_key[..16], buffer.as_mut_slice())?
+                    NodeAttributes::decrypt_and_unpack(&aes_key, buffer.as_mut_slice())?
                 };
 
                 let fingerprint = attrs.extract_fingerprint();
@@ -568,7 +610,9 @@ impl Client {
                     kind: NodeKind::File,
                     parent: None,
                     children: Vec::default(),
-                    key: node_key,
+                    aes_key,
+                    aes_iv: Some(aes_iv),
+                    condensed_mac: Some(condensed_mac),
                     checksum: fingerprint.map(|it| it.checksum),
                     created_at: None,
                     modified_at,
@@ -603,18 +647,50 @@ impl Client {
                         NodeKind::File | NodeKind::Folder => {
                             let (_, file_key) = file.key.as_ref().unwrap().split_once(':').unwrap();
 
+                            // File keys are 32 bytes and folder keys are 16 bytes.
+                            // Other sizes are considered invalid.
+                            if (file.kind.is_file() && file_key.len() != 32)
+                                || (!file.kind.is_file() && file_key.len() != 16)
+                            {
+                                continue;
+                            }
+
+                            // TODO: MEGA includes in its web client a check to see if both halves of `file_key`
+                            //       are identical to each other. This is apparently done to prevent an attacker from
+                            //       being able to produce an all-zeroes AES key (by XOR-ing the two halves after EBC decryption).
+                            //       It's a bit unclear what we should do in our specific case, so it isn't yet implemented here.
+                            //
+                            //       Here would be how to implement such a check:
+                            //       ```
+                            //       if !self.state.allow_null_keys {
+                            //           let (fst, snd) = node_key.split_at(16);
+                            //           if fst == snd {
+                            //               continue;
+                            //           }
+                            //       }
+                            //       ```
+
                             let mut file_key = BASE64_URL_SAFE_NO_PAD.decode(file_key)?;
                             utils::decrypt_ebc_in_place(&node_key, &mut file_key);
 
-                            let attrs = {
-                                let mut file_key = file_key.clone();
+                            let (aes_key, aes_iv, condensed_mac) = if file.kind.is_file() {
                                 utils::unmerge_key_mac(&mut file_key);
 
+                                let (aes_key, rest) = file_key.split_at(16);
+                                let (aes_iv, condensed_mac) = rest.split_at(8);
+
+                                (
+                                    aes_key.try_into().unwrap(),
+                                    aes_iv.try_into().ok(),
+                                    condensed_mac.try_into().ok(),
+                                )
+                            } else {
+                                (file_key.try_into().unwrap(), None, None)
+                            };
+
+                            let attrs = {
                                 let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
-                                NodeAttributes::decrypt_and_unpack(
-                                    &file_key[..16],
-                                    buffer.as_mut_slice(),
-                                )?
+                                NodeAttributes::decrypt_and_unpack(&aes_key, buffer.as_mut_slice())?
                             };
 
                             let (thumbnail_handle, preview_image_handle) = file
@@ -642,7 +718,9 @@ impl Client {
                                         (parent == &file.handle).then(|| file.handle.clone())
                                     })
                                     .collect(),
-                                key: file_key,
+                                aes_key,
+                                aes_iv,
+                                condensed_mac,
                                 checksum: fingerprint.map(|it| it.checksum),
                                 created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                                 modified_at,
@@ -726,9 +804,6 @@ impl Client {
             }
         };
 
-        let mut file_key = node.key.clone();
-        utils::unmerge_key_mac(&mut file_key);
-
         let url =
             Url::parse(format!("{0}/{1}-{2}", response.download_url, 0, response.size).as_str())?;
 
@@ -736,63 +811,61 @@ impl Client {
 
         let mut file_iv = [0u8; 16];
 
-        file_iv[..8].copy_from_slice(&node.key[16..24]);
-        let mut ctr = ctr::Ctr128BE::<Aes128>::new(file_key[..16].into(), (&file_iv).into());
+        file_iv[..8].copy_from_slice(node.aes_iv.unwrap_or_default().as_slice());
+        let mut ctr = ctr::Ctr128BE::<Aes128>::new(node.aes_key[..].into(), (&file_iv).into());
 
-        file_iv[8..].copy_from_slice(&node.key[16..24]);
+        file_iv[8..].copy_from_slice(node.aes_iv.unwrap_or_default().as_slice());
 
-        let mut final_mac_data = [0u8; 16];
-        let mut final_mac =
-            cbc::Encryptor::<Aes128>::new(file_key[..16].into(), (&final_mac_data).into());
+        let (condensed_mac_reader, condensed_mac_writer) = sluice::pipe::pipe();
 
-        let mut chunk_size: u64 = 131_072; // 2^17
-        let mut cur_mac = [0u8; 16];
+        let download_future = async move {
+            let mut chunk_size: u64 = 131_072; // 2^17
 
-        let mut buffer = Vec::with_capacity(usize::try_from(chunk_size).unwrap());
+            let mut buffer = {
+                let chunk_size = usize::try_from(chunk_size).unwrap();
+                Vec::with_capacity(chunk_size)
+            };
 
-        futures::pin_mut!(writer);
-        loop {
-            buffer.clear();
+            futures::pin_mut!(writer);
+            futures::pin_mut!(condensed_mac_writer);
 
-            let bytes_read = (&mut reader)
-                .take(chunk_size)
-                .read_to_end(&mut buffer)
-                .await?;
+            loop {
+                buffer.clear();
 
-            if bytes_read == 0 {
-                break;
+                let bytes_read = (&mut reader)
+                    .take(chunk_size)
+                    .read_to_end(&mut buffer)
+                    .await?;
+
+                if bytes_read == 0 {
+                    break;
+                }
+
+                ctr.apply_keystream(&mut buffer);
+                writer.write_all(&buffer).await?;
+                condensed_mac_writer.write_all(&buffer).await?;
+
+                if chunk_size < 1_048_576 {
+                    chunk_size += 131_072;
+                }
             }
 
-            ctr.apply_keystream(&mut buffer);
-            writer.write_all(&buffer).await?;
+            Ok(())
+        };
 
-            let (chunks, leftover) = buffer.split_at(buffer.len() - buffer.len() % 16);
-
-            let mut mac = cbc::Encryptor::<Aes128>::new(file_key[..16].into(), (&file_iv).into());
-
-            for chunk in chunks.chunks_exact(16) {
-                mac.encrypt_block_b2b_mut(chunk.into(), (&mut cur_mac).into());
+        let condensed_mac_future = {
+            let size = node.size;
+            let aes_key = node.aes_key;
+            let aes_iv = node.aes_iv.unwrap();
+            async move {
+                fingerprint::compute_condensed_mac(condensed_mac_reader, size, &aes_key, &aes_iv)
+                    .await
             }
+        };
 
-            if !leftover.is_empty() {
-                let mut padded_chunk = [0u8; 16];
-                padded_chunk[..leftover.len()].copy_from_slice(leftover);
-                mac.encrypt_block_b2b_mut((&padded_chunk).into(), (&mut cur_mac).into());
-            }
+        let (_, condensed_mac) = futures::try_join!(download_future, condensed_mac_future)?;
 
-            final_mac.encrypt_block_b2b_mut((&cur_mac).into(), (&mut final_mac_data).into());
-
-            if chunk_size < 1_048_576 {
-                chunk_size += 131_072;
-            }
-        }
-
-        for i in 0..4 {
-            final_mac_data[i] = final_mac_data[i] ^ final_mac_data[i + 4];
-            final_mac_data[i + 4] = final_mac_data[i + 8] ^ final_mac_data[i + 12];
-        }
-
-        if final_mac_data[..8] != node.key[24..32] {
+        if condensed_mac != node.condensed_mac.unwrap_or_default() {
             return Err(Error::MacMismatch);
         }
 
@@ -829,26 +902,25 @@ impl Client {
             }
         };
 
-        let (file_key, file_iv_seed): ([u8; 16], [u8; 8]) = rand::random();
+        let (aes_key, aes_iv_seed): ([u8; 16], [u8; 8]) = rand::random();
 
-        let mut file_iv = [0u8; 16];
-        file_iv[..8].copy_from_slice(&file_iv_seed);
+        let mut aes_iv = [0u8; 16];
+        aes_iv[..8].copy_from_slice(&aes_iv_seed);
 
-        let mut ctr = ctr::Ctr128BE::<Aes128>::new((&file_key).into(), (&file_iv).into());
-        file_iv[8..].copy_from_slice(&file_iv_seed);
+        let mut ctr = ctr::Ctr128BE::<Aes128>::new((&aes_key).into(), (&aes_iv).into());
+        aes_iv[8..].copy_from_slice(&aes_iv_seed);
 
         let (upload_reader, mut upload_writer) = sluice::pipe::pipe();
-        let (checksum_reader, mut checksum_writer) = sluice::pipe::pipe();
+        let (condensed_mac_reader, mut condensed_mac_writer) = sluice::pipe::pipe();
+        let (sparse_checksum_reader, mut sparse_checksum_writer) = sluice::pipe::pipe();
 
-        let fut_1 = async move {
+        let dispatch_future = async move {
             let mut chunk_size: u64 = 131_072; // 2^17
-            let mut cur_mac = [0u8; 16];
 
-            let mut final_mac_data = [0u8; 16];
-            let mut final_mac =
-                cbc::Encryptor::<Aes128>::new((&file_key).into(), (&final_mac_data).into());
-
-            let mut buffer = Vec::with_capacity(usize::try_from(chunk_size).unwrap());
+            let mut buffer = {
+                let chunk_size = usize::try_from(chunk_size).unwrap();
+                Vec::with_capacity(chunk_size)
+            };
 
             let reader = reader.take(size);
 
@@ -865,22 +937,9 @@ impl Client {
                     break;
                 }
 
-                checksum_writer.write_all(&buffer).await?;
-
-                let (chunks, leftover) = buffer.split_at(buffer.len() - buffer.len() % 16);
-
-                let mut mac = cbc::Encryptor::<Aes128>::new((&file_key).into(), (&file_iv).into());
-                for chunk in chunks.chunks_exact(16) {
-                    mac.encrypt_block_b2b_mut(chunk.into(), (&mut cur_mac).into());
-                }
-
-                if !leftover.is_empty() {
-                    let mut padded_chunk = [0u8; 16];
-                    padded_chunk[..leftover.len()].copy_from_slice(leftover);
-                    mac.encrypt_block_b2b_mut((&padded_chunk).into(), (&mut cur_mac).into());
-                }
-
-                final_mac.encrypt_block_b2b_mut((&cur_mac).into(), (&mut final_mac_data).into());
+                // TODO: try to find out if it would be useful to `join!` these two.
+                condensed_mac_writer.write_all(&buffer).await?;
+                sparse_checksum_writer.write_all(&buffer).await?;
 
                 ctr.apply_keystream(&mut buffer);
                 upload_writer.write_all(&buffer).await?;
@@ -890,15 +949,20 @@ impl Client {
                 }
             }
 
-            Ok(final_mac_data)
+            Ok(())
         };
 
-        let url = Url::parse(format!("{0}/{1}", response.upload_url, 0).as_str())?;
-        let fut_2 = async move {
-            let size = usize::try_from(size).unwrap();
-            fingerprint::compute_sparse_checksum(checksum_reader, size).await
+        let condensed_mac_future = async move {
+            let aes_iv = aes_iv[..8].try_into().unwrap();
+            fingerprint::compute_condensed_mac(condensed_mac_reader, size, &aes_key, &aes_iv).await
         };
-        let fut_3 = async move {
+
+        let sparse_checksum_future =
+            async move { fingerprint::compute_sparse_checksum(sparse_checksum_reader, size).await };
+
+        let upload_future = async move {
+            let url = Url::parse(format!("{0}/{1}", response.upload_url, 0).as_str())?;
+
             let mut reader = self
                 .client
                 .post(url, Box::pin(upload_reader), Some(size))
@@ -910,16 +974,15 @@ impl Client {
             Ok::<_, Error>(String::from_utf8_lossy(&buffer).into_owned())
         };
 
-        let (mut final_mac_data, checksum, completion_handle) =
-            futures::try_join!(fut_1, fut_2, fut_3)?;
-
-        for i in 0..4 {
-            final_mac_data[i] = final_mac_data[i] ^ final_mac_data[i + 4];
-            final_mac_data[i + 4] = final_mac_data[i + 8] ^ final_mac_data[i + 12];
-        }
+        let (_, condensed_mac, sparse_checksum, completion_handle) = futures::try_join!(
+            dispatch_future,
+            condensed_mac_future,
+            sparse_checksum_future,
+            upload_future,
+        )?;
 
         let attributes = {
-            let fingerprint = NodeFingerprint::new(checksum, Utc::now().timestamp());
+            let fingerprint = NodeFingerprint::new(sparse_checksum, Utc::now().timestamp());
             NodeAttributes {
                 name: name.to_string(),
                 fingerprint: Some(fingerprint.serialize()),
@@ -929,14 +992,14 @@ impl Client {
         };
 
         let file_attr_buffer = {
-            let buffer = attributes.pack_and_encrypt(&file_key)?;
+            let buffer = attributes.pack_and_encrypt(&aes_key)?;
             BASE64_URL_SAFE_NO_PAD.encode(&buffer)
         };
 
         let mut key = [0u8; 32];
-        key[..16].copy_from_slice(&file_key);
-        key[16..24].copy_from_slice(&file_iv[..8]);
-        key[24..].copy_from_slice(&final_mac_data[..8]);
+        key[..16].copy_from_slice(&aes_key);
+        key[16..24].copy_from_slice(&aes_iv[..8]);
+        key[24..].copy_from_slice(&condensed_mac);
         utils::merge_key_mac(&mut key);
 
         utils::encrypt_ebc_in_place(&session.key, &mut key);
@@ -1019,13 +1082,7 @@ impl Client {
             u32::from_le_bytes(len_bytes)
         };
 
-        let file_key = {
-            let mut file_key = node.key.clone();
-            utils::unmerge_key_mac(&mut file_key);
-            file_key
-        };
-
-        let mut cbc = cbc::Decryptor::<Aes128>::new(file_key[..16].into(), (&[0u8; 16]).into());
+        let mut cbc = cbc::Decryptor::<Aes128>::new(node.aes_key[..].into(), (&[0u8; 16]).into());
 
         futures::pin_mut!(writer);
         let mut reader = reader.take(len.into());
@@ -1101,13 +1158,7 @@ impl Client {
             return Err(Error::InvalidResponseType);
         };
 
-        let file_key = {
-            let mut file_key = node.key.clone();
-            utils::unmerge_key_mac(&mut file_key);
-            file_key
-        };
-
-        let mut cbc = cbc::Encryptor::<Aes128>::new(file_key[..16].into(), (&[0u8; 16]).into());
+        let mut cbc = cbc::Encryptor::<Aes128>::new(node.aes_key[..].into(), (&[0u8; 16]).into());
 
         let (pipe_reader, mut pipe_writer) = sluice::pipe::pipe();
 
@@ -1200,7 +1251,7 @@ impl Client {
             .as_ref()
             .ok_or(Error::MissingUserSession)?;
 
-        let mut file_key: [u8; 16] = rand::random();
+        let mut aes_key: [u8; 16] = rand::random();
 
         let file_attr = NodeAttributes {
             name: name.to_string(),
@@ -1210,13 +1261,13 @@ impl Client {
         };
 
         let file_attr_buffer = {
-            let buffer = file_attr.pack_and_encrypt(&file_key)?;
+            let buffer = file_attr.pack_and_encrypt(&aes_key)?;
             BASE64_URL_SAFE_NO_PAD.encode(&buffer)
         };
 
-        utils::encrypt_ebc_in_place(&session.key, &mut file_key);
+        utils::encrypt_ebc_in_place(&session.key, &mut aes_key);
 
-        let key_b64 = BASE64_URL_SAFE_NO_PAD.encode(&file_key);
+        let key_b64 = BASE64_URL_SAFE_NO_PAD.encode(&aes_key);
 
         let attrs = UploadAttributes {
             kind: NodeKind::Folder,
@@ -1265,14 +1316,8 @@ impl Client {
             }
         };
 
-        let attributes_buffer = if node.kind().is_file() {
-            let mut file_key = node.key.clone();
-            utils::unmerge_key_mac(&mut file_key);
-
-            let buffer = attributes.pack_and_encrypt(&file_key[..16])?;
-            BASE64_URL_SAFE_NO_PAD.encode(&buffer)
-        } else {
-            let buffer = attributes.pack_and_encrypt(&node.key)?;
+        let attributes_buffer = {
+            let buffer = attributes.pack_and_encrypt(&node.aes_key)?;
             BASE64_URL_SAFE_NO_PAD.encode(&buffer)
         };
 
@@ -1365,9 +1410,13 @@ pub struct Node {
     pub(crate) parent: Option<String>,
     /// The handles of the node's children.
     pub(crate) children: Vec<String>,
-    /// The de-obfuscated file key of the node.
-    pub(crate) key: Vec<u8>,
-    /// The (potentially-sparse) checksum of the node.
+    /// The AES key data of the node.
+    pub(crate) aes_key: [u8; 16],
+    /// The AES IV data of the node.
+    pub(crate) aes_iv: Option<[u8; 8]>,
+    /// The full-coverage condensed MAC of the node.
+    pub(crate) condensed_mac: Option<[u8; 8]>,
+    /// The sparse checksum of the node.
     pub(crate) checksum: Option<[u8; 16]>,
     /// The creation date of the node.
     pub(crate) created_at: Option<DateTime<Utc>>,
@@ -1427,9 +1476,24 @@ impl Node {
         self.download_id.as_deref()
     }
 
+    /// Returns the AES key data of the node.
+    pub fn aes_key(&self) -> &[u8; 16] {
+        &self.aes_key
+    }
+
+    /// Returns the AES IV data of the node.
+    pub fn aes_iv(&self) -> Option<&[u8; 8]> {
+        self.aes_iv.as_ref()
+    }
+
+    /// Returns the full-coverage condensed MAC signature of the node.
+    pub fn condensed_mac(&self) -> Option<&[u8; 8]> {
+        self.condensed_mac.as_ref()
+    }
+
     /// Returns the sparse CRC32-based checksum of the node.
-    pub fn checksum(&self) -> Option<[u8; 16]> {
-        self.checksum
+    pub fn sparse_checksum(&self) -> Option<&[u8; 16]> {
+        self.checksum.as_ref()
     }
 
     /// Returns whether this node has a associated thumbnail.

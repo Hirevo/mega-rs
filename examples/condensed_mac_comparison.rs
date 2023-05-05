@@ -1,6 +1,6 @@
 //!
 //! Example program that simply checks if a local file is similar to a MEGA file
-//! using a CRC32-based sparse checksum, with progress reporting.
+//! using a condensed MAC, with progress reporting.
 //!
 
 use std::env;
@@ -24,7 +24,7 @@ async fn run(
         .get_node_by_path(distant_file_path)
         .expect("could not find node by path");
 
-    let Some(remote_checksum) = node.sparse_checksum() else {
+    let Some(remote_condensed_mac) = node.condensed_mac() else {
         println!("remote node doesn't have a checksum available");
         return Ok(());
     };
@@ -46,13 +46,18 @@ async fn run(
             })
     };
 
-    let local_checksum = mega::compute_sparse_checksum(reader, size).await?;
+    let local_condensed_mac = {
+        let aes_key = node.aes_key();
+        let aes_iv = node.aes_iv().unwrap();
+        mega::compute_condensed_mac(reader, size, aes_key, aes_iv).await?
+    };
+
     bar.finish_and_clear();
 
-    if local_checksum == *remote_checksum {
-        println!("OK ! (the checksums are identical)");
+    if local_condensed_mac == *remote_condensed_mac {
+        println!("OK ! (the MACs are identical)");
     } else {
-        println!("FAILED ! (the checksums differ)");
+        println!("FAILED ! (the MACs differ)");
     }
 
     Ok(())
