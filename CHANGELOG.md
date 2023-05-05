@@ -12,8 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added `Node::modified_at`.
-- Added `Node::checksum`.
+- Added `Node::aes_key`.
+- Added `Node::aes_iv`.
+- Added `Node::condensed_mac`.
+- Added `Node::sparse_checksum`.
 - Added `compute_sparse_checksum` standalone function.
+- Added `compute_condensed_mac` standalone function.
 
 ### Changed
 
