@@ -39,6 +39,7 @@ async fn upload_and_download_test() {
         "mega-rs-test-file.txt",
         size.try_into().unwrap(),
         uploaded.as_bytes(),
+        mega::LastModified::Now,
     )
     .await
     .expect("could not upload test file");
