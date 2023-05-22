@@ -1303,15 +1303,15 @@ impl Client {
     /// Renames a node.
     pub async fn rename_node(&self, node: &Node, name: &str) -> Result<()> {
         let attributes = {
-            let modified_at = Utc::now().timestamp();
-            let fingerprint = node
-                .checksum
-                .map(|checksum| NodeFingerprint::new(checksum, modified_at).serialize());
+            let fingerprint =
+                (node.checksum.zip(node.modified_at)).map(|(checksum, modified_at)| {
+                    NodeFingerprint::new(checksum, modified_at.timestamp()).serialize()
+                });
 
             NodeAttributes {
                 name: name.to_string(),
                 fingerprint,
-                modified_at: Some(modified_at),
+                modified_at: Some(0),
                 other: HashMap::default(),
             }
         };
