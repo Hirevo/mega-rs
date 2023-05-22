@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `Node::sparse_checksum`.
 - Added `compute_sparse_checksum` standalone function.
 - Added `compute_condensed_mac` standalone function.
+- Added `LastModified` enum.
 
 ### Changed
 
@@ -25,12 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed `Nodes::get_node_by_hash` to `Nodes::get_node_by_handle`.
 - Changed `mega::Result<T>` to `mega::Result<T, E = mega::Error>`.
 - Changed `Node::created_at` to return an owned `DateTime<Utc>` instead of borrowing.
+- Changed `Client::upload_node` to now accept a last modification date (using `LastModified`).
 
 ### Fixed
 
 - Resolved issues when decrypting attributes for shared nodes.
 - Fixed handling of folder keys.
 - Fixed folder key generation in `Client::create_dir`.
+- Fixed last modification dates being overwritten when renaming nodes.
 
 ### Removed
 
