@@ -1256,7 +1256,7 @@ impl Client {
         let file_attr = NodeAttributes {
             name: name.to_string(),
             fingerprint: None,
-            modified_at: Some(Utc::now().timestamp()),
+            modified_at: None,
             other: HashMap::default(),
         };
 
