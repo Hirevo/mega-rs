@@ -38,8 +38,14 @@ async fn run(mega: &mut mega::Client, file: &str, folder: &str) -> mega::Result<
         })
     };
 
-    mega.upload_node(&node, file_name, size, reader.compat())
-        .await?;
+    mega.upload_node(
+        &node,
+        file_name,
+        size,
+        reader.compat(),
+        mega::LastModified::Now,
+    )
+    .await?;
 
     bar.finish_with_message(format!("{0} uploaded !", node.name()));
 
@@ -61,7 +67,6 @@ async fn main() {
     let mut mega = mega::Client::builder().build(http_client).unwrap();
 
     mega.login(&email, &password, mfa.as_deref()).await.unwrap();
-
     let result = run(&mut mega, file, folder).await;
     mega.logout().await.unwrap();
 

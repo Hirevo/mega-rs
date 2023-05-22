@@ -879,6 +879,7 @@ impl Client {
         name: &str,
         size: u64,
         reader: R,
+        last_modified: LastModified,
     ) -> Result<()> {
         let session = self
             .state
@@ -982,11 +983,12 @@ impl Client {
         )?;
 
         let attributes = {
-            let fingerprint = NodeFingerprint::new(sparse_checksum, Utc::now().timestamp());
+            let last_modified = last_modified.resolve().timestamp();
+            let fingerprint = NodeFingerprint::new(sparse_checksum, last_modified);
             NodeAttributes {
                 name: name.to_string(),
                 fingerprint: Some(fingerprint.serialize()),
-                modified_at: Some(fingerprint.modified_at),
+                modified_at: Some(last_modified),
                 other: HashMap::default(),
             }
         };
@@ -1626,5 +1628,23 @@ pub(crate) enum AttributeKind {
 impl From<AttributeKind> for u8 {
     fn from(value: AttributeKind) -> Self {
         value as u8
+    }
+}
+
+/// Represents the last modified date to set for a newly uploaded MEGA node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LastModified {
+    /// Set the last modified date to the current time of the upload.
+    Now,
+    /// Set the last modified date to the explicitely-specified time.
+    Set(DateTime<Utc>),
+}
+
+impl LastModified {
+    pub fn resolve(self) -> DateTime<Utc> {
+        match self {
+            LastModified::Now => Utc::now(),
+            LastModified::Set(datetime) => datetime,
+        }
     }
 }
