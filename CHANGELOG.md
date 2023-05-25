@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed handling of folder keys.
 - Fixed folder key generation in `Client::create_dir`.
 - Fixed last modification dates being overwritten when renaming nodes.
+- Fixed occasional `MALFORMED_ATTRIBUTES` issue due to incorrect attributes buffer padding.
 
 ### Removed
 
