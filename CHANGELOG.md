@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+[0.4.1] - 2023-05-25
+--------------------
+
+### Fixed
+
+- Fixed occasional `MALFORMED_ATTRIBUTES` issue due to incorrect attributes buffer padding.
+
 [0.4.0] - 2023-04-12
 --------------------
 
