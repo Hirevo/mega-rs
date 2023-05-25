@@ -44,7 +44,7 @@ impl NodeAttributes {
         let mut buffer = b"MEGA".to_vec();
         json::to_writer(&mut buffer, self)?;
 
-        let padding_len = (16 - buffer.len() % 16).min(15);
+        let padding_len = (16 - buffer.len() % 16) % 16;
         buffer.extend(std::iter::repeat(b'\0').take(padding_len));
 
         let mut cbc = cbc::Encryptor::<Aes128>::new(file_key.into(), &<_>::default());
