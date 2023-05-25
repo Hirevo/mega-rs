@@ -988,7 +988,7 @@ impl Client {
             NodeAttributes {
                 name: name.to_string(),
                 fingerprint: Some(fingerprint.serialize()),
-                modified_at: Some(last_modified),
+                modified_at: None,
                 other: HashMap::default(),
             }
         };
@@ -1258,7 +1258,7 @@ impl Client {
         let file_attr = NodeAttributes {
             name: name.to_string(),
             fingerprint: None,
-            modified_at: Some(0),
+            modified_at: None,
             other: HashMap::default(),
         };
 
@@ -1313,7 +1313,7 @@ impl Client {
             NodeAttributes {
                 name: name.to_string(),
                 fingerprint,
-                modified_at: Some(0),
+                modified_at: None,
                 other: HashMap::default(),
             }
         };
