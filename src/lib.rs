@@ -419,7 +419,7 @@ impl Client {
                         aes_key,
                         aes_iv,
                         condensed_mac,
-                        checksum: fingerprint.map(|it| it.checksum),
+                        sparse_checksum: fingerprint.map(|it| it.checksum),
                         created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                         modified_at,
                         download_id: None,
@@ -451,7 +451,7 @@ impl Client {
                         aes_key: <_>::default(),
                         aes_iv: None,
                         condensed_mac: None,
-                        checksum: None,
+                        sparse_checksum: None,
                         created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                         modified_at: None,
                         download_id: None,
@@ -478,7 +478,7 @@ impl Client {
                         aes_key: <_>::default(),
                         aes_iv: None,
                         condensed_mac: None,
-                        checksum: None,
+                        sparse_checksum: None,
                         created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                         modified_at: None,
                         download_id: None,
@@ -505,7 +505,7 @@ impl Client {
                         aes_key: <_>::default(),
                         aes_iv: None,
                         condensed_mac: None,
-                        checksum: None,
+                        sparse_checksum: None,
                         created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                         modified_at: None,
                         download_id: None,
@@ -620,7 +620,7 @@ impl Client {
                     aes_key,
                     aes_iv: Some(aes_iv),
                     condensed_mac: Some(condensed_mac),
-                    checksum: fingerprint.map(|it| it.checksum),
+                    sparse_checksum: fingerprint.map(|it| it.checksum),
                     created_at: None,
                     modified_at,
                     download_id: Some(node_id.clone()),
@@ -745,7 +745,7 @@ impl Client {
                                 aes_key,
                                 aes_iv,
                                 condensed_mac,
-                                checksum: fingerprint.map(|it| it.checksum),
+                                sparse_checksum: fingerprint.map(|it| it.checksum),
                                 created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                                 modified_at,
                                 download_id: Some(node_id.clone()),
@@ -1330,7 +1330,7 @@ impl Client {
     pub async fn rename_node(&self, node: &Node, name: &str) -> Result<()> {
         let attributes = {
             let fingerprint =
-                (node.checksum.zip(node.modified_at)).map(|(checksum, modified_at)| {
+                (node.sparse_checksum.zip(node.modified_at)).map(|(checksum, modified_at)| {
                     NodeFingerprint::new(checksum, modified_at.timestamp()).serialize()
                 });
 
@@ -1518,7 +1518,7 @@ impl Client {
                         handle: event.handle,
                         name: attrs.name,
                         owner: event.owner,
-                        checksum: fingerprint.map(|it| it.checksum),
+                        sparse_checksum: fingerprint.map(|it| it.checksum),
                         created_at: Some(Utc.timestamp_opt(event.ts, 0).unwrap()),
                         modified_at,
                     };
@@ -1600,7 +1600,7 @@ impl Client {
                         handle: event.handle,
                         name: attrs.name,
                         owner: event.owner,
-                        checksum: fingerprint.map(|it| it.checksum),
+                        sparse_checksum: fingerprint.map(|it| it.checksum),
                         created_at: Some(Utc.timestamp_opt(event.ts, 0).unwrap()),
                         modified_at,
                     };
@@ -1937,7 +1937,7 @@ pub struct EventNodeAttributes {
     /// The user handle of the owner of this node.
     pub(crate) owner: String,
     /// The sparse checksum of the node.
-    pub(crate) checksum: Option<[u8; 16]>,
+    pub(crate) sparse_checksum: Option<[u8; 16]>,
     /// The creation date of the node.
     pub(crate) created_at: Option<DateTime<Utc>>,
     /// The last modification date of the node.
@@ -1961,8 +1961,8 @@ impl EventNodeAttributes {
     }
 
     /// Returns the new sparse CRC32-based checksum of the node.
-    pub fn checksum(&self) -> Option<&[u8; 16]> {
-        self.checksum.as_ref()
+    pub fn sparse_checksum(&self) -> Option<&[u8; 16]> {
+        self.sparse_checksum.as_ref()
     }
 
     /// Returns the new last modified date of the node.
@@ -2032,7 +2032,7 @@ pub struct Node {
     /// The full-coverage condensed MAC of the node.
     pub(crate) condensed_mac: Option<[u8; 8]>,
     /// The sparse checksum of the node.
-    pub(crate) checksum: Option<[u8; 16]>,
+    pub(crate) sparse_checksum: Option<[u8; 16]>,
     /// The creation date of the node.
     pub(crate) created_at: Option<DateTime<Utc>>,
     /// The last modification date of the node.
@@ -2113,7 +2113,7 @@ impl Node {
 
     /// Returns the sparse CRC32-based checksum of the node.
     pub fn sparse_checksum(&self) -> Option<&[u8; 16]> {
-        self.checksum.as_ref()
+        self.sparse_checksum.as_ref()
     }
 
     /// Returns whether this node has a associated thumbnail.
@@ -2286,7 +2286,7 @@ impl Nodes {
             aes_key: node.aes_key,
             aes_iv: node.aes_iv,
             condensed_mac: node.condensed_mac,
-            checksum: node.checksum,
+            sparse_checksum: node.checksum,
             created_at: node.created_at,
             modified_at: node.modified_at,
             download_id: node.download_id,
@@ -2329,7 +2329,7 @@ impl Nodes {
 
         node.name = attrs.name;
         node.owner = attrs.owner;
-        node.checksum = attrs.checksum;
+        node.sparse_checksum = attrs.sparse_checksum;
         node.created_at = attrs.created_at;
         node.modified_at = attrs.modified_at;
     }
