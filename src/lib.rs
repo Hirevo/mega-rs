@@ -1998,7 +1998,7 @@ pub struct EventBatch {
 }
 
 impl EventBatch {
-    pub fn new(events: Vec<Event>, from: String, to: String) -> Self {
+    pub(crate) fn new(events: Vec<Event>, from: String, to: String) -> Self {
         Self { events, from, to }
     }
 
