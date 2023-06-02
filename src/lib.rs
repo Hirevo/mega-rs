@@ -1927,17 +1927,7 @@ impl EventNode {
     }
 }
 
-/// A MEGA-emitted event.
-#[derive(Debug, PartialEq)]
-pub enum Event {
-    /// A new node has been created.
-    NodeCreated { nodes: Vec<EventNode> },
-    /// An existing node has been updated.
-    NodeUpdated { attrs: EventNodeAttributes },
-    /// A node has been deleted.
-    NodeDeleted { handle: String },
-}
-
+/// Represents the updated attributes of a node, as part of an [`Event`].
 #[derive(Debug, PartialEq)]
 pub struct EventNodeAttributes {
     /// The handle of the node.
@@ -1984,6 +1974,17 @@ impl EventNodeAttributes {
     pub fn created_at(&self) -> Option<DateTime<Utc>> {
         self.created_at
     }
+}
+
+/// A MEGA-emitted event.
+#[derive(Debug, PartialEq)]
+pub enum Event {
+    /// A new node has been created.
+    NodeCreated { nodes: Vec<EventNode> },
+    /// An existing node has been updated.
+    NodeUpdated { attrs: EventNodeAttributes },
+    /// A node has been deleted.
+    NodeDeleted { handle: String },
 }
 
 /// A batch of MEGA-emitted events.
