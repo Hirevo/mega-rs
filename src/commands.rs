@@ -418,7 +418,7 @@ pub struct FetchNodesResponse {
     /// Additional data about the nodes' owners.
     #[serde(rename = "u")]
     pub user: Option<Vec<FileUser>>,
-    /// TODO
+    /// Event cursor for server-to-client events.
     #[serde(rename = "sn")]
     pub sn: String,
 }

@@ -15,17 +15,19 @@ use url::Url;
 mod attributes;
 mod commands;
 mod error;
+mod events;
 mod fingerprint;
 mod http;
 mod utils;
 
-pub use crate::commands::NodeKind;
+pub use crate::commands::{FileNode, NodeKind};
 pub use crate::error::{Error, ErrorCode, Result};
 pub use crate::fingerprint::{compute_condensed_mac, compute_sparse_checksum};
 pub use crate::utils::StorageQuotas;
 
 use crate::attributes::NodeAttributes;
 use crate::commands::{Request, Response, UploadAttributes};
+use crate::events::{EventBatchResponse, EventResponse, EventResponseKind};
 use crate::fingerprint::NodeFingerprint;
 use crate::http::{ClientState, HttpClient, UserSession};
 
@@ -403,6 +405,7 @@ impl Client {
                     let node = Node {
                         name: attrs.name,
                         handle: file.handle.clone(),
+                        owner: file.user.clone(),
                         size: file.sz.unwrap_or(0),
                         kind: file.kind,
                         parent: (!file.parent.is_empty()).then(|| file.parent.clone()),
@@ -434,6 +437,7 @@ impl Client {
                     let node = Node {
                         name: String::from("Root"),
                         handle: file.handle.clone(),
+                        owner: file.user.clone(),
                         size: file.sz.unwrap_or(0),
                         kind: NodeKind::Root,
                         parent: None,
@@ -460,6 +464,7 @@ impl Client {
                     let node = Node {
                         name: String::from("Inbox"),
                         handle: file.handle.clone(),
+                        owner: file.user.clone(),
                         size: file.sz.unwrap_or(0),
                         kind: NodeKind::Inbox,
                         parent: None,
@@ -486,6 +491,7 @@ impl Client {
                     let node = Node {
                         name: String::from("Trash"),
                         handle: file.handle.clone(),
+                        owner: file.user.clone(),
                         size: file.sz.unwrap_or(0),
                         kind: NodeKind::Trash,
                         parent: None,
@@ -514,7 +520,7 @@ impl Client {
             }
         }
 
-        Ok(Nodes::new(nodes))
+        Ok(Nodes::new(nodes, files.sn.clone(), None))
     }
 
     /// Fetches all nodes from a public MEGA link.
@@ -606,6 +612,7 @@ impl Client {
                 let node = Node {
                     name: attrs.name,
                     handle: node_id.clone(),
+                    owner: String::default(),
                     size: file.size,
                     kind: NodeKind::File,
                     parent: None,
@@ -616,14 +623,14 @@ impl Client {
                     checksum: fingerprint.map(|it| it.checksum),
                     created_at: None,
                     modified_at,
-                    download_id: Some(node_id),
+                    download_id: Some(node_id.clone()),
                     thumbnail_handle: None,
                     preview_image_handle: None,
                 };
 
                 nodes.insert(node.handle.clone(), node);
 
-                Ok(Nodes::new(nodes))
+                Ok(Nodes::new(nodes, String::default(), Some(node_id)))
             }
             NodeKind::Folder => {
                 let request = Request::FetchNodes { c: 1, r: Some(1) };
@@ -645,33 +652,49 @@ impl Client {
                 for file in &files.nodes {
                     match file.kind {
                         NodeKind::File | NodeKind::Folder => {
-                            let (_, file_key) = file.key.as_ref().unwrap().split_once(':').unwrap();
-
-                            // File keys are 32 bytes and folder keys are 16 bytes.
-                            // Other sizes are considered invalid.
-                            if (file.kind.is_file() && file_key.len() != 32)
-                                || (!file.kind.is_file() && file_key.len() != 16)
-                            {
+                            let Some(file_key) = file.key.as_deref() else {
                                 continue;
-                            }
+                            };
 
-                            // TODO: MEGA includes in its web client a check to see if both halves of `file_key`
-                            //       are identical to each other. This is apparently done to prevent an attacker from
-                            //       being able to produce an all-zeroes AES key (by XOR-ing the two halves after EBC decryption).
-                            //       It's a bit unclear what we should do in our specific case, so it isn't yet implemented here.
-                            //
-                            //       Here would be how to implement such a check:
-                            //       ```
-                            //       if !self.state.allow_null_keys {
-                            //           let (fst, snd) = node_key.split_at(16);
-                            //           if fst == snd {
-                            //               continue;
-                            //           }
-                            //       }
-                            //       ```
+                            let Some(mut file_key) = file_key.split('/').find_map(|key| {
+                                let (_, file_key) = key.split_once(':')?;
 
-                            let mut file_key = BASE64_URL_SAFE_NO_PAD.decode(file_key)?;
-                            utils::decrypt_ebc_in_place(&node_key, &mut file_key);
+                                if file_key.len() >= 44 {
+                                    // Keys bigger than this size are using RSA instead of AES.
+                                    // We don't support this as of right now.
+                                    todo!();
+                                }
+
+                                let mut file_key = BASE64_URL_SAFE_NO_PAD.decode(file_key).ok()?;
+
+                                // File keys are 32 bytes and folder keys are 16 bytes.
+                                // Other sizes are considered invalid.
+                                if (file.kind.is_file() && file_key.len() != 32)
+                                    || (!file.kind.is_file() && file_key.len() != 16)
+                                {
+                                    return None;
+                                }
+
+                                // TODO: MEGA includes in its web client a check to see if both halves of `file_key`
+                                //       are identical to each other. This is apparently done to prevent an attacker from
+                                //       being able to produce an all-zeroes AES key (by XOR-ing the two halves after EBC decryption).
+                                //       It's a bit unclear what we should do in our specific case, so it isn't yet implemented here.
+                                //
+                                //       Here would be how to implement such a check:
+                                //       ```
+                                //       if !self.state.allow_null_keys {
+                                //           let (fst, snd) = file_key.split_at(16);
+                                //           if fst == snd {
+                                //               return None;
+                                //           }
+                                //       }
+                                //       ```
+
+                                utils::decrypt_ebc_in_place(&node_key, &mut file_key);
+                                Some(file_key)
+                            }) else {
+                                continue;
+                            };
 
                             let (aes_key, aes_iv, condensed_mac) = if file.kind.is_file() {
                                 utils::unmerge_key_mac(&mut file_key);
@@ -708,6 +731,7 @@ impl Client {
                             let node = Node {
                                 name: attrs.name,
                                 handle: file.handle.clone(),
+                                owner: file.user.clone(),
                                 size: file.sz.unwrap_or(0),
                                 kind: file.kind,
                                 parent: (!file.parent.is_empty()).then(|| file.parent.clone()),
@@ -739,7 +763,7 @@ impl Client {
                     }
                 }
 
-                Ok(Nodes::new(nodes))
+                Ok(Nodes::new(nodes, files.sn.clone(), Some(node_id)))
             }
             _ => unreachable!(),
         }
@@ -1395,15 +1419,603 @@ impl Client {
 
         Ok(())
     }
+
+    /// Performs a request for events, respecting the configured rules about timeouts and retries.
+    async fn request_events(&self, event_cursor: &str) -> Result<EventBatchResponse> {
+        let url = {
+            let mut url = self.state.origin.join("/sc").unwrap();
+
+            let mut qs = url.query_pairs_mut();
+            qs.append_pair("sn", event_cursor);
+
+            if let Some(session) = self.state.session.as_ref() {
+                qs.append_pair("sid", session.sid.as_str());
+            }
+
+            qs.finish();
+            drop(qs);
+
+            url
+        };
+
+        let mut delay = self.state.min_retry_delay;
+        for i in 0..self.state.max_retries {
+            if i > 0 {
+                tokio::time::sleep(delay).await;
+                delay *= 2;
+                // TODO: maybe add some small random jitter after the doubling.
+                if delay > self.state.max_retry_delay {
+                    delay = self.state.max_retry_delay;
+                }
+            }
+
+            let mut response = self.client.get(url.clone()).await?;
+
+            let mut buffer = Vec::default();
+            response.read_to_end(&mut buffer).await?;
+
+            let value: json::Value = json::from_slice(&buffer)?;
+            if value.is_number() {
+                let code = json::from_value(value)?;
+                if code == ErrorCode::EAGAIN {
+                    continue;
+                }
+                return Err(Error::MegaError(code));
+            } else {
+                let response = json::from_value(value)?;
+                return Ok(response);
+            }
+        }
+
+        Err(Error::MaxRetriesReached)
+    }
+
+    /// Retrieves MEGA events, if any are currently available (it does not wait for new events to come in).
+    pub async fn poll_events(&self, nodes: &Nodes) -> Result<Option<EventBatch>> {
+        let EventBatchResponse::Ready(response) = self.request_events(&nodes.event_cursor).await? else {
+            return Ok(None);
+        };
+
+        let mut events = Vec::new();
+        for event in response.events {
+            if event.is_number() {
+                let code = json::from_value(event)?;
+                return Err(Error::MegaError(code));
+            }
+
+            let event: EventResponse = json::from_value(event)?;
+            match event.kind {
+                EventResponseKind::NodeCreated(event) => {
+                    let nodes = event
+                        .nodes
+                        .files
+                        .into_iter()
+                        .filter_map(|file| {
+                            construct_event_node(&self.state, nodes, file).transpose()
+                        })
+                        .collect::<Result<_, _>>()?;
+
+                    events.push(Event::NodeCreated { nodes });
+                }
+                EventResponseKind::NodeUpdated(event) => {
+                    let Some(node) = nodes.get_node_by_handle(&event.handle) else {
+                        // an event involving a node we don't currently know about?
+                        continue;
+                    };
+
+                    let attrs = {
+                        let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&event.attr)?;
+                        NodeAttributes::decrypt_and_unpack(node.aes_key(), buffer.as_mut_slice())?
+                    };
+
+                    let fingerprint = attrs.extract_fingerprint();
+
+                    let modified_at = (attrs.modified_at)
+                        .or_else(|| fingerprint.as_ref().map(|it| it.modified_at))
+                        .and_then(|timestamp| Utc.timestamp_opt(timestamp, 0).single());
+
+                    let attrs = EventNodeAttributes {
+                        handle: event.handle,
+                        name: attrs.name,
+                        owner: event.owner,
+                        checksum: fingerprint.map(|it| it.checksum),
+                        created_at: Some(Utc.timestamp_opt(event.ts, 0).unwrap()),
+                        modified_at,
+                    };
+
+                    events.push(Event::NodeUpdated { attrs });
+                }
+                EventResponseKind::NodeDeleted(event) => {
+                    events.push(Event::NodeDeleted {
+                        handle: event.handle,
+                    });
+                }
+                EventResponseKind::UnknownEvent => {
+                    // Unsupported MEGA event
+                }
+            }
+        }
+
+        Ok(Some(EventBatch::new(
+            events,
+            nodes.event_cursor.clone(),
+            response.sn,
+        )))
+    }
+
+    /// Retrieves MEGA events, or efficiently waits for new ones if none are currently available.
+    pub async fn wait_events(&self, nodes: &Nodes) -> Result<EventBatch> {
+        let response = loop {
+            let response = self.request_events(&nodes.event_cursor).await?;
+            match response {
+                EventBatchResponse::Wait(response) => {
+                    let wait_url = Url::parse(&response.wait_url)?;
+                    self.client.get(wait_url).await?;
+                }
+                EventBatchResponse::Ready(response) => {
+                    break response;
+                }
+            }
+        };
+
+        let mut events = Vec::new();
+        for event in response.events {
+            if event.is_number() {
+                let code = json::from_value(event)?;
+                return Err(Error::MegaError(code));
+            }
+
+            let event: EventResponse = json::from_value(event)?;
+            match event.kind {
+                EventResponseKind::NodeCreated(event) => {
+                    let nodes = event
+                        .nodes
+                        .files
+                        .into_iter()
+                        .filter_map(|file| {
+                            construct_event_node(&self.state, nodes, file).transpose()
+                        })
+                        .collect::<Result<_, _>>()?;
+
+                    events.push(Event::NodeCreated { nodes });
+                }
+                EventResponseKind::NodeUpdated(event) => {
+                    let Some(node) = nodes.get_node_by_handle(&event.handle) else {
+                        // an event involving a node we don't currently know about?
+                        continue;
+                    };
+
+                    let attrs = {
+                        let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&event.attr)?;
+                        NodeAttributes::decrypt_and_unpack(node.aes_key(), buffer.as_mut_slice())?
+                    };
+
+                    let fingerprint = attrs.extract_fingerprint();
+
+                    let modified_at = (attrs.modified_at)
+                        .or_else(|| fingerprint.as_ref().map(|it| it.modified_at))
+                        .and_then(|timestamp| Utc.timestamp_opt(timestamp, 0).single());
+
+                    let attrs = EventNodeAttributes {
+                        handle: event.handle,
+                        name: attrs.name,
+                        owner: event.owner,
+                        checksum: fingerprint.map(|it| it.checksum),
+                        created_at: Some(Utc.timestamp_opt(event.ts, 0).unwrap()),
+                        modified_at,
+                    };
+
+                    events.push(Event::NodeUpdated { attrs });
+                }
+                EventResponseKind::NodeDeleted(event) => {
+                    events.push(Event::NodeDeleted {
+                        handle: event.handle,
+                    });
+                }
+                EventResponseKind::UnknownEvent => {
+                    // Unsupported MEGA event
+                }
+            }
+        }
+
+        Ok(EventBatch::new(
+            events,
+            nodes.event_cursor.clone(),
+            response.sn,
+        ))
+    }
+}
+
+fn construct_event_node(
+    state: &ClientState,
+    nodes: &Nodes,
+    file: FileNode,
+) -> Result<Option<EventNode>> {
+    let (thumbnail_handle, preview_image_handle) = file
+        .file_attr
+        .as_deref()
+        .map(|attr| utils::extract_attachments(attr))
+        .unwrap_or_default();
+
+    match file.kind {
+        NodeKind::File | NodeKind::Folder => {
+            // if let Some((_, s_key)) = file.s_user.as_deref().zip(file.s_key.as_deref()) {
+            //     let mut share_key = BASE64_URL_SAFE_NO_PAD.decode(s_key)?;
+            //     utils::decrypt_ebc_in_place(&session.key, &mut share_key);
+            //     utils::decrypt_ebc_in_place(&share_key, &mut file_key);
+            //     share_keys.insert(file.handle.clone(), share_key.clone());
+            // }
+
+            let Some(file_key) = file.key.as_deref() else {
+                return Ok(None);
+            };
+
+            let Some(mut file_key) = file_key.split('/').find_map(|key| {
+                let (file_user, file_key) = key.split_once(':')?;
+
+                if file_key.len() >= 44 {
+                    // Keys bigger than this size are using RSA instead of AES.
+                    // We don't support this as of right now.
+                    todo!();
+                }
+
+                let mut file_key =
+                    BASE64_URL_SAFE_NO_PAD.decode(file_key).ok()?;
+
+                // File keys are 32 bytes and folder keys are 16 bytes.
+                // Other sizes are considered invalid.
+                if (file.kind.is_file() && file_key.len() != 32)
+                    || (!file.kind.is_file() && file_key.len() != 16)
+                {
+                    return None;
+                }
+
+                // TODO: MEGA includes in its web client a check to see if both halves of `file_key`
+                //       are identical to each other. This is apparently done to prevent an attacker from
+                //       being able to produce an all-zeroes AES key (by XOR-ing the two halves after EBC decryption).
+                //       It's a bit unclear what we should do in our specific case, so it isn't yet implemented here.
+                //
+                //       Here would be how to implement such a check:
+                //       ```
+                //       if !self.state.allow_null_keys {
+                //           let (fst, snd) = file_key.split_at(16);
+                //           if fst == snd {
+                //               return None;
+                //           }
+                //       }
+                //       ```
+
+                if let Some(node_id) = nodes.download_id.as_deref() {
+                    let node = nodes.get_node_by_handle(node_id)?;
+                    utils::decrypt_ebc_in_place(
+                        node.aes_key(),
+                        &mut file_key,
+                    );
+                    Some(file_key)
+                } else {
+                    let session = state.session.as_ref()?;
+
+                    if file_user == session.user_handle {
+                        // regular owned file or folder
+                        utils::decrypt_ebc_in_place(
+                            &session.key,
+                            &mut file_key,
+                        );
+                        return Some(file_key);
+                    }
+
+                    // if let Some(share_key) = share_keys.get(file_user) {
+                    //     // shared file or folder
+                    //     utils::decrypt_ebc_in_place(&share_key, &mut file_key);
+                    //     return Some(file_key);
+                    // }
+
+                    None
+                }
+            }) else {
+                return Ok(None);
+            };
+
+            let (aes_key, aes_iv, condensed_mac) = if file.kind.is_file() {
+                utils::unmerge_key_mac(&mut file_key);
+
+                let (aes_key, rest) = file_key.split_at(16);
+                let (aes_iv, condensed_mac) = rest.split_at(8);
+
+                (
+                    aes_key.try_into().unwrap(),
+                    aes_iv.try_into().ok(),
+                    condensed_mac.try_into().ok(),
+                )
+            } else {
+                (file_key.try_into().unwrap(), None, None)
+            };
+
+            let attrs = {
+                let mut buffer = BASE64_URL_SAFE_NO_PAD.decode(&file.attr)?;
+                NodeAttributes::decrypt_and_unpack(&aes_key, buffer.as_mut_slice())?
+            };
+
+            let fingerprint = attrs.extract_fingerprint();
+
+            let modified_at = (attrs.modified_at)
+                .or_else(|| fingerprint.as_ref().map(|it| it.modified_at))
+                .and_then(|timestamp| Utc.timestamp_opt(timestamp, 0).single());
+
+            Ok(Some(EventNode {
+                name: attrs.name,
+                handle: file.handle.clone(),
+                owner: file.user,
+                size: file.sz.unwrap_or(0),
+                kind: file.kind,
+                parent: (!file.parent.is_empty()).then(|| file.parent.clone()),
+                aes_key,
+                aes_iv,
+                condensed_mac,
+                checksum: fingerprint.map(|it| it.checksum),
+                created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
+                modified_at,
+                download_id: nodes.download_id.clone(),
+                thumbnail_handle,
+                preview_image_handle,
+            }))
+        }
+        NodeKind::Root => Ok(Some(EventNode {
+            name: String::from("Root"),
+            handle: file.handle.clone(),
+            owner: file.user,
+            size: file.sz.unwrap_or(0),
+            kind: NodeKind::Root,
+            parent: None,
+            aes_key: <_>::default(),
+            aes_iv: None,
+            condensed_mac: None,
+            checksum: None,
+            created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
+            modified_at: None,
+            download_id: nodes.download_id.clone(),
+            thumbnail_handle,
+            preview_image_handle,
+        })),
+        NodeKind::Inbox => Ok(Some(EventNode {
+            name: String::from("Inbox"),
+            handle: file.handle.clone(),
+            owner: file.user,
+            size: file.sz.unwrap_or(0),
+            kind: NodeKind::Inbox,
+            parent: None,
+            aes_key: <_>::default(),
+            aes_iv: None,
+            condensed_mac: None,
+            checksum: None,
+            created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
+            modified_at: None,
+            download_id: nodes.download_id.clone(),
+            thumbnail_handle,
+            preview_image_handle,
+        })),
+        NodeKind::Trash => Ok(Some(EventNode {
+            name: String::from("Trash"),
+            handle: file.handle.clone(),
+            owner: file.user,
+            size: file.sz.unwrap_or(0),
+            kind: NodeKind::Trash,
+            parent: None,
+            aes_key: <_>::default(),
+            aes_iv: None,
+            condensed_mac: None,
+            checksum: None,
+            created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
+            modified_at: None,
+            download_id: nodes.download_id.clone(),
+            thumbnail_handle,
+            preview_image_handle,
+        })),
+        NodeKind::Unknown => Ok(None),
+    }
+}
+
+/// Represents a node, as part of an [`Event`].
+#[derive(Debug, PartialEq)]
+pub struct EventNode {
+    /// The name of the node.
+    pub(crate) name: String,
+    /// The handle of the node.
+    pub(crate) handle: String,
+    /// The user handle of the owner of the node.
+    pub(crate) owner: String,
+    /// The size (in bytes) of the node.
+    pub(crate) size: u64,
+    /// The kind of the node.
+    pub(crate) kind: NodeKind,
+    /// The handle of the node's parent.
+    pub(crate) parent: Option<String>,
+    /// The AES key data of the node.
+    pub(crate) aes_key: [u8; 16],
+    /// The AES IV data of the node.
+    pub(crate) aes_iv: Option<[u8; 8]>,
+    /// The full-coverage condensed MAC of the node.
+    pub(crate) condensed_mac: Option<[u8; 8]>,
+    /// The sparse checksum of the node.
+    pub(crate) checksum: Option<[u8; 16]>,
+    /// The creation date of the node.
+    pub(crate) created_at: Option<DateTime<Utc>>,
+    /// The last modification date of the node.
+    pub(crate) modified_at: Option<DateTime<Utc>>,
+    /// The ID of the public link this node is from.
+    pub(crate) download_id: Option<String>,
+    /// The handle of the node's thumbnail.
+    pub(crate) thumbnail_handle: Option<String>,
+    /// The handle of the node's preview image.
+    pub(crate) preview_image_handle: Option<String>,
+}
+
+impl EventNode {
+    /// Returns the name of the node.
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Returns the handle of the node.
+    pub fn handle(&self) -> &str {
+        self.handle.as_str()
+    }
+
+    /// Returns the user handle of the owner of the node.
+    pub fn owner(&self) -> &str {
+        self.owner.as_str()
+    }
+
+    /// Returns the size (in bytes) of the node.
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Returns the kind of the node.
+    pub fn kind(&self) -> NodeKind {
+        self.kind
+    }
+
+    /// Returns the handle of the node's parent.
+    pub fn parent(&self) -> Option<&str> {
+        self.parent.as_deref()
+    }
+
+    /// Returns the last modified date of the node.
+    pub fn modified_at(&self) -> Option<DateTime<Utc>> {
+        self.modified_at
+    }
+
+    /// Returns the creation date of the node.
+    pub fn created_at(&self) -> Option<DateTime<Utc>> {
+        self.created_at
+    }
+
+    /// Returns the ID of the public link this node is from.
+    pub fn download_id(&self) -> Option<&str> {
+        self.download_id.as_deref()
+    }
+
+    /// Returns the AES key data of the node.
+    pub fn aes_key(&self) -> &[u8; 16] {
+        &self.aes_key
+    }
+
+    /// Returns the AES IV data of the node.
+    pub fn aes_iv(&self) -> Option<&[u8; 8]> {
+        self.aes_iv.as_ref()
+    }
+
+    /// Returns the full-coverage condensed MAC signature of the node.
+    pub fn condensed_mac(&self) -> Option<&[u8; 8]> {
+        self.condensed_mac.as_ref()
+    }
+
+    /// Returns the sparse CRC32-based checksum of the node.
+    pub fn sparse_checksum(&self) -> Option<&[u8; 16]> {
+        self.checksum.as_ref()
+    }
+
+    /// Returns whether this node has a associated thumbnail.
+    pub fn has_thumbnail(&self) -> bool {
+        self.thumbnail_handle.is_some()
+    }
+
+    /// Returns whether this node has an associated preview image.
+    pub fn has_preview_image(&self) -> bool {
+        self.preview_image_handle.is_some()
+    }
+}
+
+/// A MEGA-emitted event.
+#[derive(Debug, PartialEq)]
+pub enum Event {
+    /// A new node has been created.
+    NodeCreated { nodes: Vec<EventNode> },
+    /// An existing node has been updated.
+    NodeUpdated { attrs: EventNodeAttributes },
+    /// A node has been deleted.
+    NodeDeleted { handle: String },
+}
+
+#[derive(Debug, PartialEq)]
+pub struct EventNodeAttributes {
+    /// The handle of the node.
+    pub(crate) handle: String,
+    /// The name of the node.
+    pub(crate) name: String,
+    /// The user handle of the owner of this node.
+    pub(crate) owner: String,
+    /// The sparse checksum of the node.
+    pub(crate) checksum: Option<[u8; 16]>,
+    /// The creation date of the node.
+    pub(crate) created_at: Option<DateTime<Utc>>,
+    /// The last modification date of the node.
+    pub(crate) modified_at: Option<DateTime<Utc>>,
+}
+
+impl EventNodeAttributes {
+    /// The handle of the updated node.
+    pub fn handle(&self) -> &str {
+        self.handle.as_str()
+    }
+
+    /// The new name of the node.
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Returns the user handle of the new owner of the node.
+    pub fn owner(&self) -> &str {
+        self.owner.as_str()
+    }
+
+    /// Returns the new sparse CRC32-based checksum of the node.
+    pub fn checksum(&self) -> Option<&[u8; 16]> {
+        self.checksum.as_ref()
+    }
+
+    /// Returns the new last modified date of the node.
+    pub fn modified_at(&self) -> Option<DateTime<Utc>> {
+        self.modified_at
+    }
+
+    /// Returns the new creation date of the node.
+    pub fn created_at(&self) -> Option<DateTime<Utc>> {
+        self.created_at
+    }
+}
+
+/// A batch of MEGA-emitted events.
+#[derive(Debug, PartialEq)]
+pub struct EventBatch {
+    /// The events for this batch.
+    pub(crate) events: Vec<Event>,
+    /// The `sn` this event batch is from.
+    pub(crate) from: String,
+    /// The `sn` this event batch goes to.
+    pub(crate) to: String,
+}
+
+impl EventBatch {
+    pub fn new(events: Vec<Event>, from: String, to: String) -> Self {
+        Self { events, from, to }
+    }
+
+    pub fn events(&self) -> &[Event] {
+        self.events.as_slice()
+    }
 }
 
 /// Represents a node stored in MEGA (either a file or a folder).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Node {
     /// The name of the node.
     pub(crate) name: String,
     /// The handle of the node.
     pub(crate) handle: String,
+    /// The user handle of the owner of the node.
+    pub(crate) owner: String,
     /// The size (in bytes) of the node.
     pub(crate) size: u64,
     /// The kind of the node.
@@ -1441,6 +2053,11 @@ impl Node {
     /// Returns the handle of the node.
     pub fn handle(&self) -> &str {
         self.handle.as_str()
+    }
+
+    /// Returns the user handle of the owner of the node.
+    pub fn owner(&self) -> &str {
+        self.owner.as_str()
     }
 
     /// Returns the size (in bytes) of the node.
@@ -1519,10 +2136,18 @@ pub struct Nodes {
     pub(crate) rubbish_bin: Option<String>,
     /// The handle of the root node for the Inbox.
     pub(crate) inbox: Option<String>,
+    /// The `sn` parameter for server-to-client events.
+    pub(crate) event_cursor: String,
+    /// The ID of the public link these nodes are from.
+    pub(crate) download_id: Option<String>,
 }
 
 impl Nodes {
-    pub(crate) fn new(nodes: HashMap<String, Node>) -> Self {
+    pub(crate) fn new(
+        nodes: HashMap<String, Node>,
+        event_cursor: String,
+        download_id: Option<String>,
+    ) -> Self {
         let cloud_drive = nodes
             .values()
             .find_map(|node| node.kind.is_root().then(|| node.handle.clone()));
@@ -1538,6 +2163,8 @@ impl Nodes {
             cloud_drive,
             rubbish_bin,
             inbox,
+            event_cursor,
+            download_id,
         }
     }
 
@@ -1606,6 +2233,127 @@ impl Nodes {
     /// Creates a mutably-borrowing iterator over the nodes.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Node> {
         self.nodes.values_mut()
+    }
+
+    pub fn apply_events(&mut self, events: EventBatch) -> Result<()> {
+        if self.event_cursor != events.from {
+            return Err(Error::EventCursorMismatch);
+        }
+
+        for event in events.events {
+            match event {
+                Event::NodeCreated { nodes } => {
+                    for node in nodes {
+                        self.insert_event_node(node);
+                    }
+                }
+                Event::NodeUpdated { attrs } => {
+                    self.update_node_attributes(attrs);
+                }
+                Event::NodeDeleted { handle } => {
+                    self.delete_node(&handle);
+                }
+            }
+        }
+
+        // TODO: Are we supposed to recompute all impacted folder sizes?
+        //       If so, we could maybe write a `self.invalidate_folder_sizes()` method.
+
+        self.event_cursor = events.to;
+        Ok(())
+    }
+
+    pub(crate) fn insert_event_node(&mut self, node: EventNode) {
+        // compute new children for this node.
+        let children = self
+            .nodes
+            .values()
+            .filter_map(|it| {
+                let parent = it.parent.as_ref()?;
+                (parent == &node.handle).then(|| node.handle.clone())
+            })
+            .collect();
+
+        let new_node = Node {
+            name: node.name,
+            handle: node.handle,
+            owner: node.owner,
+            size: node.size,
+            kind: node.kind,
+            parent: node.parent,
+            children,
+            aes_key: node.aes_key,
+            aes_iv: node.aes_iv,
+            condensed_mac: node.condensed_mac,
+            checksum: node.checksum,
+            created_at: node.created_at,
+            modified_at: node.modified_at,
+            download_id: node.download_id,
+            thumbnail_handle: node.thumbnail_handle,
+            preview_image_handle: node.preview_image_handle,
+        };
+
+        // Add this node to its parent's children.
+        if let Some(parent_handle) = new_node.parent() {
+            if let Some(parent_node) = self.nodes.get_mut(parent_handle) {
+                if !parent_node.children.contains(&new_node.handle) {
+                    parent_node.children.push(new_node.handle.clone());
+                }
+            }
+        }
+
+        let maybe_old_node = self.nodes.insert(new_node.handle.clone(), new_node);
+
+        // Remove this node from its old parent's children.
+        if let Some(old_node) = maybe_old_node {
+            if let Some(parent_handle) = old_node.parent() {
+                if let Some(parent_node) = self.nodes.get_mut(parent_handle) {
+                    let maybe_position = parent_node
+                        .children
+                        .iter()
+                        .position(|it| it == &old_node.handle);
+
+                    if let Some(position) = maybe_position {
+                        parent_node.children.remove(position);
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn update_node_attributes(&mut self, attrs: EventNodeAttributes) {
+        let Some(node) = self.nodes.get_mut(&attrs.handle) else {
+            return;
+        };
+
+        node.name = attrs.name;
+        node.owner = attrs.owner;
+        node.checksum = attrs.checksum;
+        node.created_at = attrs.created_at;
+        node.modified_at = attrs.modified_at;
+    }
+
+    pub(crate) fn delete_node(&mut self, handle: &str) {
+        let Some(node) = self.nodes.remove(handle) else {
+            return;
+        };
+
+        for handle in node.children {
+            self.delete_node(handle.as_str());
+        }
+
+        if let Some(parent_handle) = node.parent {
+            if let Some(parent_node) = self.nodes.get_mut(&parent_handle) {
+                let maybe_position = parent_node
+                    .children
+                    .iter()
+                    .position(|it| it == &node.handle);
+
+                if let Some(position) = maybe_position {
+                    parent_node.children.remove(position);
+                }
+            }
+        }
     }
 }
 
