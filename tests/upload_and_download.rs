@@ -6,6 +6,8 @@ use std::env;
 
 use rand::distributions::{Alphanumeric, DistString};
 
+pub const BASE_PATH: &str = "/Root/mega-rs-tests";
+
 #[tokio::test]
 async fn upload_and_download_test() {
     let email = env::var("MEGA_EMAIL").expect("missing MEGA_EMAIL environment variable");
@@ -24,7 +26,7 @@ async fn upload_and_download_test() {
         .expect("could not fetch own nodes");
 
     let root = nodes
-        .cloud_drive()
+        .get_node_by_path(BASE_PATH)
         .expect("could not find Cloud Drive root");
 
     let uploaded = {
@@ -32,11 +34,20 @@ async fn upload_and_download_test() {
         Alphanumeric.sample_string(&mut rng, 1024)
     };
 
+    let file_name = {
+        let mut rng = rand::thread_rng();
+        format!(
+            "mega-rs-test-file-{0}.txt",
+            Alphanumeric.sample_string(&mut rng, 10),
+        )
+    };
+
+    let file_path = format!("{BASE_PATH}/{file_name}");
     let size = uploaded.len();
 
     mega.upload_node(
         root,
-        "mega-rs-test-file.txt",
+        file_name.as_str(),
         size.try_into().unwrap(),
         uploaded.as_bytes(),
         mega::LastModified::Now,
@@ -50,7 +61,7 @@ async fn upload_and_download_test() {
         .expect("could not fetch own nodes (after upload)");
 
     let node = nodes
-        .get_node_by_path("/Root/mega-rs-test-file.txt")
+        .get_node_by_path(&file_path)
         .expect("could not find test file node after upload");
 
     let mut downloaded = Vec::default();
