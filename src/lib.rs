@@ -1269,8 +1269,8 @@ impl Client {
             .await
     }
 
-    /// Creates a new directory.
-    pub async fn create_dir(&self, parent: &Node, name: &str) -> Result<()> {
+    /// Creates a new folder within MEGA.
+    pub async fn create_folder(&self, parent: &Node, name: &str) -> Result<()> {
         let session = self
             .state
             .session
