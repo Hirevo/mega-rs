@@ -17,12 +17,13 @@ fn construct_tree_node(nodes: &mega::Nodes, node: &mega::Node) -> StringTreeNode
     folders.sort_unstable_by_key(|node| node.name());
     files.sort_unstable_by_key(|node| node.name());
 
+    let label = format!("(H:{0}) {1}", node.handle(), node.name());
     let children = std::iter::empty()
         .chain(folders)
         .chain(files)
         .map(|node| construct_tree_node(nodes, node));
 
-    StringTreeNode::with_child_nodes(node.name().to_string(), children)
+    StringTreeNode::with_child_nodes(label, children)
 }
 
 async fn run(mega: &mut mega::Client, distant_file_path: Option<&str>) -> mega::Result<()> {

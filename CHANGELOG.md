@@ -11,14 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added `Node::modified_at`.
-- Added `Node::aes_key`.
-- Added `Node::aes_iv`.
-- Added `Node::condensed_mac`.
-- Added `Node::sparse_checksum`.
+- Added `Node::owner` getter method.
+- Added `Node::modified_at` getter method.
+- Added `Node::aes_key` getter method.
+- Added `Node::aes_iv` getter method.
+- Added `Node::condensed_mac` getter method.
+- Added `Node::sparse_checksum` getter method.
 - Added `compute_sparse_checksum` standalone function.
 - Added `compute_condensed_mac` standalone function.
 - Added `LastModified` enum.
+- Added `Event` enum.
+- Added `EventBatch` struct.
+- Added `EventNode` struct.
+- Added `EventNodeAttributes` struct.
+- Added `Client::poll_event` method.
+- Added `Client::wait_event` method.
+- Added `Nodes::apply_events` method.
 
 ### Changed
 
@@ -36,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed last modification dates being overwritten when renaming nodes.
 
 ### Removed
+
+- Removed `Clone` impl for `Node`.
 
 [0.4.1] - 2023-05-25
 --------------------

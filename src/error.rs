@@ -37,6 +37,9 @@ pub enum Error {
     /// Could not get a meaningful response after maximum retries.
     #[error("could not get a meaningful response after maximum retries")]
     MaxRetriesReached,
+    /// The involved event cursors do not match, continuing would result in inconsistencies.
+    #[error("the involved event cursors do not match, continuing would result in inconsistencies")]
+    EventCursorMismatch,
     /// Reqwest error.
     #[cfg(feature = "reqwest")]
     #[error("reqwest error: {0}")]
