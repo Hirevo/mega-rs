@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Renamed `Node::hash` to `Node::handle`.
 - Renamed `Nodes::get_node_by_hash` to `Nodes::get_node_by_handle`.
+- Renamed `Client::create_dir` to `Client::create_folder`.
 - Changed `mega::Result<T>` to `mega::Result<T, E = mega::Error>`.
 - Changed `Node::created_at` to return an owned `DateTime<Utc>` instead of borrowing.
 - Changed `Client::upload_node` to now accept a last modification date (using `LastModified`).
@@ -40,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Resolved issues when decrypting attributes for shared nodes.
 - Fixed handling of folder keys.
-- Fixed folder key generation in `Client::create_dir`.
+- Fixed folder key generation in `Client::create_folder`.
 - Fixed last modification dates being overwritten when renaming nodes.
 
 ### Removed
