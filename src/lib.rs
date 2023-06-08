@@ -2231,11 +2231,6 @@ impl Nodes {
         self.nodes.values()
     }
 
-    /// Creates a mutably-borrowing iterator over the nodes.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Node> {
-        self.nodes.values_mut()
-    }
-
     pub fn apply_events(&mut self, events: EventBatch) -> Result<()> {
         if self.event_cursor != events.from {
             return Err(Error::EventCursorMismatch);
