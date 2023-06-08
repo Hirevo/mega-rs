@@ -11,9 +11,9 @@ use tokio_util::codec::{BytesCodec, FramedRead};
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use url::Url;
 
-use crate::commands::{Request, Response};
 use crate::error::Error;
 use crate::http::HttpClient;
+use crate::protocol::commands::{Request, Response};
 use crate::{ClientState, ErrorCode};
 
 #[async_trait]

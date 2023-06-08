@@ -13,23 +13,22 @@ use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use url::Url;
 
 mod attributes;
-mod commands;
 mod error;
-mod events;
 mod fingerprint;
 mod http;
+mod protocol;
 mod utils;
 
-pub use crate::commands::{FileNode, NodeKind};
 pub use crate::error::{Error, ErrorCode, Result};
 pub use crate::fingerprint::{compute_condensed_mac, compute_sparse_checksum};
+pub use crate::protocol::commands::{FileNode, NodeKind};
 pub use crate::utils::StorageQuotas;
 
 use crate::attributes::NodeAttributes;
-use crate::commands::{Request, Response, UploadAttributes};
-use crate::events::{EventBatchResponse, EventResponse, EventResponseKind};
 use crate::fingerprint::NodeFingerprint;
 use crate::http::{ClientState, HttpClient, UserSession};
+use crate::protocol::commands::{Request, Response, UploadAttributes};
+use crate::protocol::events::{EventBatchResponse, EventResponse, EventResponseKind};
 
 pub(crate) const DEFAULT_API_ORIGIN: &str = "https://g.api.mega.co.nz/";
 
