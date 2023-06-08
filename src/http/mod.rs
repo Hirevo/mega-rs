@@ -9,8 +9,8 @@ use url::Url;
 #[cfg(feature = "reqwest")]
 mod reqwest;
 
-use crate::commands::{Request, Response};
 use crate::error::Error;
+use crate::protocol::commands::{Request, Response};
 
 /// Stores the data representing a user's session.
 #[derive(Debug, Clone)]

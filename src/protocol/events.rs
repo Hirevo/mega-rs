@@ -2,10 +2,12 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::protocol::commands::FileNode;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EventResponseNodes {
     #[serde(rename = "f")]
-    pub files: Vec<crate::commands::FileNode>,
+    pub files: Vec<FileNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

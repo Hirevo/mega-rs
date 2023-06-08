@@ -13,8 +13,8 @@ use rand::distributions::{Alphanumeric, DistString};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
-use crate::commands::UserAttributesResponse;
 use crate::http::UserSession;
+use crate::protocol::commands::UserAttributesResponse;
 use crate::Result;
 
 /// Represents storage quotas from MEGA.
