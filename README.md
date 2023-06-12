@@ -40,8 +40,8 @@ Features
 
 - [x] Login with MEGA
   - [x] MFA support
-  - [ ] Session serialization
-  - [ ] Session resumption (deserialization)
+  - [x] Session resumption (deserialization)
+  - [x] Session serialization
 - [x] Get storage quotas
 - [x] Listing nodes
 - [x] Downloading nodes
