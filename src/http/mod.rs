@@ -9,7 +9,7 @@ use url::Url;
 #[cfg(feature = "reqwest")]
 mod reqwest;
 
-use crate::error::Error;
+use crate::error::Result;
 use crate::protocol::commands::{Request, Response};
 
 /// Stores the data representing a user's session.
@@ -19,6 +19,8 @@ pub struct UserSession {
     pub(crate) sid: String,
     /// The user's master key.
     pub(crate) key: [u8; 16],
+    /// The user's `sek`.
+    pub(crate) sek: [u8; 16],
     /// The user's handle.
     pub(crate) user_handle: String,
 }
@@ -55,10 +57,10 @@ pub trait HttpClient {
         state: &ClientState,
         requests: &[Request],
         query_params: &[(&str, &str)],
-    ) -> Result<Vec<Response>, Error>;
+    ) -> Result<Vec<Response>>;
 
     /// Initiates a simple GET request, returning the response body as a reader.
-    async fn get(&self, url: Url) -> Result<Pin<Box<dyn AsyncRead>>, Error>;
+    async fn get(&self, url: Url) -> Result<Pin<Box<dyn AsyncRead>>>;
 
     /// Initiates a simple POST request, with body and optional `content-length`, returning the response body as a reader.
     async fn post(
@@ -66,5 +68,5 @@ pub trait HttpClient {
         url: Url,
         body: Pin<Box<dyn AsyncRead + Send + Sync>>,
         content_length: Option<u64>,
-    ) -> Result<Pin<Box<dyn AsyncRead>>, Error>;
+    ) -> Result<Pin<Box<dyn AsyncRead>>>;
 }

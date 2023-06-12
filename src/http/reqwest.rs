@@ -11,7 +11,7 @@ use tokio_util::codec::{BytesCodec, FramedRead};
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use url::Url;
 
-use crate::error::Error;
+use crate::error::{Error, Result};
 use crate::http::HttpClient;
 use crate::protocol::commands::{Request, Response};
 use crate::{ClientState, ErrorCode};
@@ -23,9 +23,9 @@ impl HttpClient for reqwest::Client {
         state: &ClientState,
         requests: &[Request],
         query_params: &[(&str, &str)],
-    ) -> Result<Vec<Response>, Error> {
+    ) -> Result<Vec<Response>> {
         let url = {
-            let mut url = state.origin.join("/cs").unwrap();
+            let mut url = state.origin.join("/cs")?;
 
             let mut qs = url.query_pairs_mut();
             let id_counter = state.id_counter.fetch_add(1, Ordering::SeqCst);
@@ -103,7 +103,7 @@ impl HttpClient for reqwest::Client {
         Err(Error::MaxRetriesReached)
     }
 
-    async fn get(&self, url: Url) -> Result<Pin<Box<dyn AsyncRead>>, Error> {
+    async fn get(&self, url: Url) -> Result<Pin<Box<dyn AsyncRead>>> {
         let stream = self
             .get(url)
             .send()
@@ -119,7 +119,7 @@ impl HttpClient for reqwest::Client {
         url: Url,
         body: Pin<Box<dyn AsyncRead + Send + Sync>>,
         content_length: Option<u64>,
-    ) -> Result<Pin<Box<dyn AsyncRead>>, Error> {
+    ) -> Result<Pin<Box<dyn AsyncRead>>> {
         let stream = FramedRead::new(body.compat(), BytesCodec::new());
         let body = Body::wrap_stream(stream);
         let stream = {

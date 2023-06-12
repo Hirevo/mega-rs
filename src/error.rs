@@ -5,11 +5,15 @@ use thiserror::Error;
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The main error type for this library.
+#[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum Error {
     /// Missing user session.
     #[error("missing user session (consider logging in first)")]
     MissingUserSession,
+    /// Invalid session kind.
+    #[error("invalid session kind")]
+    InvalidSessionKind,
     /// Invalid (or unsupported) public URL format.
     #[error("invalid (or unsupported) public URL format")]
     InvalidPublicUrlFormat,
@@ -22,12 +26,15 @@ pub enum Error {
     /// Invalid response format.
     #[error("invalid response format")]
     InvalidResponseFormat,
+    /// Invalid response format.
+    #[error("missing response field: `{field}`")]
+    MissingResponseField { field: &'static str },
     /// Unknown user login version.
-    #[error("unknown user login version: {0}")]
-    UnknownUserLoginVersion(i32),
-    /// Failed MAC verification.
-    #[error("failed MAC verification")]
-    MacMismatch,
+    #[error("unknown user login version: `{version}`")]
+    UnknownUserLoginVersion { version: i32 },
+    /// Failed condensed MAC verification.
+    #[error("condensed MAC mismatch")]
+    CondensedMacMismatch,
     /// Failed to find node.
     #[error("failed to find node")]
     NodeNotFound,
@@ -42,41 +49,77 @@ pub enum Error {
     EventCursorMismatch,
     /// Reqwest error.
     #[cfg(feature = "reqwest")]
-    #[error("reqwest error: {0}")]
-    ReqwestError(#[from] reqwest::Error),
+    #[error("`reqwest` error: {source}")]
+    ReqwestError {
+        #[from]
+        source: reqwest::Error,
+    },
     /// URL parse error.
-    #[error("URL parse error: {0}")]
-    UrlError(#[from] url::ParseError),
+    #[error("URL parse error: {source}")]
+    UrlError {
+        #[from]
+        source: url::ParseError,
+    },
     /// JSON error.
-    #[error("JSON error: {0}")]
-    JsonError(#[from] json::Error),
+    #[error("JSON error: {source}")]
+    JsonError {
+        #[from]
+        source: json::Error,
+    },
     /// Base64 encode error.
-    #[error("base64 encode error: {0}")]
-    Base64EncodeError(#[from] base64::EncodeSliceError),
+    #[error("base64 encode error: {source}")]
+    Base64EncodeError {
+        #[from]
+        source: base64::EncodeSliceError,
+    },
     /// Base64 decode error.
-    #[error("base64 encode error: {0}")]
-    Base64DecodeError(#[from] base64::DecodeError),
+    #[error("base64 encode error: {source}")]
+    Base64DecodeError {
+        #[from]
+        source: base64::DecodeError,
+    },
     /// PBKDF2 error.
-    #[error("PBKDF2 error: {0}")]
-    Pbkdf2Error(#[from] pbkdf2::password_hash::Error),
+    #[error("PBKDF2 error: {source}")]
+    Pbkdf2Error {
+        #[from]
+        source: pbkdf2::password_hash::Error,
+    },
     /// HKDF error (invalid length).
-    #[error("HKDF error: {0}")]
-    HkdfInvalidLengthError(#[from] hkdf::InvalidLength),
+    #[error("HKDF error: {source}")]
+    HkdfInvalidLengthError {
+        #[from]
+        source: hkdf::InvalidLength,
+    },
     /// HKDF error (invalid PRK length).
-    #[error("HKDF error: {0}")]
-    HkdfInvalidPrkLengthError(#[from] hkdf::InvalidPrkLength),
+    #[error("HKDF error: {source}")]
+    HkdfInvalidPrkLengthError {
+        #[from]
+        source: hkdf::InvalidPrkLength,
+    },
     /// AES-GCM error.
-    #[error("AES-GCM error: {0}")]
-    AesGcmError(#[from] aes_gcm::Error),
+    #[error("AES-GCM error: {source}")]
+    AesGcmError {
+        #[from]
+        source: aes_gcm::Error,
+    },
     /// MEGA error (error codes from API).
-    #[error("MEGA error: {0}")]
-    MegaError(#[from] ErrorCode),
+    #[error("MEGA error: {code}")]
+    MegaError {
+        #[from]
+        code: ErrorCode,
+    },
     /// I/O error.
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
+    #[error("IO error: {source}")]
+    IoError {
+        #[from]
+        source: std::io::Error,
+    },
     /// Other errors.
-    #[error("unknown error: {0}")]
-    Other(Box<dyn std::error::Error + Send + Sync>),
+    #[error("other error: {source}")]
+    Other {
+        #[from]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
 }
 
 /// Error code originating from MEGA's API.
