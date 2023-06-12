@@ -28,10 +28,16 @@ pub enum Error {
     InvalidResponseFormat,
     /// Invalid response format.
     #[error("missing response field: `{field}`")]
-    MissingResponseField { field: &'static str },
+    MissingResponseField {
+        /// The name of the missing field.
+        field: &'static str,
+    },
     /// Unknown user login version.
     #[error("unknown user login version: `{version}`")]
-    UnknownUserLoginVersion { version: i32 },
+    UnknownUserLoginVersion {
+        /// The encountered login version.
+        version: i32,
+    },
     /// Failed condensed MAC verification.
     #[error("condensed MAC mismatch")]
     CondensedMacMismatch,
@@ -51,72 +57,84 @@ pub enum Error {
     #[cfg(feature = "reqwest")]
     #[error("`reqwest` error: {source}")]
     ReqwestError {
+        /// The source `reqwest` error.
         #[from]
         source: reqwest::Error,
     },
     /// URL parse error.
     #[error("URL parse error: {source}")]
     UrlError {
+        /// The source `url` error.
         #[from]
         source: url::ParseError,
     },
     /// JSON error.
     #[error("JSON error: {source}")]
     JsonError {
+        /// The source `serde_json` error.
         #[from]
         source: json::Error,
     },
     /// Base64 encode error.
     #[error("base64 encode error: {source}")]
     Base64EncodeError {
+        /// The source `base64` encode error.
         #[from]
         source: base64::EncodeSliceError,
     },
     /// Base64 decode error.
     #[error("base64 encode error: {source}")]
     Base64DecodeError {
+        /// The source `base64` decode error.
         #[from]
         source: base64::DecodeError,
     },
     /// PBKDF2 error.
     #[error("PBKDF2 error: {source}")]
     Pbkdf2Error {
+        /// The source `pbkdf2` error.
         #[from]
         source: pbkdf2::password_hash::Error,
     },
     /// HKDF error (invalid length).
     #[error("HKDF error: {source}")]
     HkdfInvalidLengthError {
+        /// The source `hkdf` invalid length error.
         #[from]
         source: hkdf::InvalidLength,
     },
     /// HKDF error (invalid PRK length).
     #[error("HKDF error: {source}")]
     HkdfInvalidPrkLengthError {
+        /// The source `hkdf` invalid PRK length error.
         #[from]
         source: hkdf::InvalidPrkLength,
     },
     /// AES-GCM error.
     #[error("AES-GCM error: {source}")]
     AesGcmError {
+        /// The source `aes_gcm` error.
         #[from]
         source: aes_gcm::Error,
     },
     /// MEGA error (error codes from API).
     #[error("MEGA error: {code}")]
     MegaError {
+        /// The MEGA error code.
         #[from]
         code: ErrorCode,
     },
     /// I/O error.
     #[error("IO error: {source}")]
     IoError {
+        /// The source `std::io` error.
         #[from]
         source: std::io::Error,
     },
     /// Other errors.
     #[error("other error: {source}")]
     Other {
+        /// The source error.
         #[from]
         source: Box<dyn std::error::Error + Send + Sync>,
     },

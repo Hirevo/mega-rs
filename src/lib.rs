@@ -2083,12 +2083,21 @@ impl EventNodeAttributes {
 /// A MEGA-emitted event.
 #[derive(Debug, PartialEq)]
 pub enum Event {
-    /// A new node has been created.
-    NodeCreated { nodes: Vec<EventNode> },
+    /// New nodes have been created.
+    NodeCreated {
+        /// The created nodes.
+        nodes: Vec<EventNode>,
+    },
     /// An existing node has been updated.
-    NodeUpdated { attrs: EventNodeAttributes },
+    NodeUpdated {
+        /// The updated attributes for the node.
+        attrs: EventNodeAttributes,
+    },
     /// A node has been deleted.
-    NodeDeleted { handle: String },
+    NodeDeleted {
+        /// The handle of the deleted node.
+        handle: String,
+    },
 }
 
 /// A batch of MEGA-emitted events.
