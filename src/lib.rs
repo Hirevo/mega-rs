@@ -91,8 +91,8 @@ impl ClientBuilder {
     }
 
     /// Sets the timeout duration to use for each request.
-    pub fn timeout(mut self, duration: Duration) -> Self {
-        self.timeout = Some(duration);
+    pub fn timeout(mut self, duration: Option<Duration>) -> Self {
+        self.timeout = duration;
         self
     }
 
