@@ -10,6 +10,8 @@ use chrono::{DateTime, TimeZone, Utc};
 use cipher::generic_array::GenericArray;
 use cipher::{BlockDecryptMut, BlockEncrypt, BlockEncryptMut, KeyInit, KeyIvInit, StreamCipher};
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use static_assertions::assert_impl_all;
 use url::Url;
 
@@ -631,27 +633,33 @@ impl Client {
     }
 
     /// Fetches all nodes from a public MEGA link.
+    ///
+    /// Supported URL formats:
+    /// - https://mega.nz/file/{node_id}#{node_key}
+    /// - https://mega.nz/folder/{node_id}#{node_key}
+    #[allow(rustdoc::bare_urls)]
     pub async fn fetch_public_nodes(&self, url: &str) -> Result<Nodes> {
-        // supported URL formats:
-        // - https://mega.nz/file/{node_id}#{node_key}
-        // - https://mega.nz/folder/{node_id}#{node_key}
-
-        let shared_url = Url::parse(url)?;
-        let (node_kind, node_id) = {
-            let segments: Vec<&str> = shared_url.path().split('/').skip(1).collect();
-            match segments.as_slice() {
-                ["file", file_id] => (NodeKind::File, file_id.to_string()),
-                ["folder", folder_id] => (NodeKind::Folder, folder_id.to_string()),
-                _ => {
-                    // TODO: replace with its own error enum variant.
-                    return Err(Error::InvalidPublicUrlFormat);
-                }
+        let payload = match url.split_at(16) {
+            ("https://mega.nz/", payload) => payload,
+            _ => {
+                return Err(Error::InvalidPublicUrlFormat);
             }
         };
 
+        let (node_kind, payload) = match payload.split_once("/") {
+            Some(("file", payload)) => (NodeKind::File, payload),
+            Some(("folder", payload)) => (NodeKind::Folder, payload),
+            _ => {
+                return Err(Error::InvalidPublicUrlFormat);
+            }
+        };
+
+        let (node_id, node_key) = payload
+            .split_once("#")
+            .ok_or(Error::InvalidPublicUrlFormat)?;
+
         let mut node_key = {
-            let fragment = shared_url.fragment().ok_or(Error::InvalidPublicUrlFormat)?;
-            let key = fragment.split_once('/').map_or(fragment, |it| it.0);
+            let key = node_key.split_once('/').map_or(node_key, |it| it.0);
             BASE64_URL_SAFE_NO_PAD.decode(key)?
         };
 
@@ -662,7 +670,7 @@ impl Client {
                 let request = Request::Download {
                     g: 1,
                     ssl: 0,
-                    p: Some(node_id.clone()),
+                    p: Some(node_id.to_string()),
                     n: None,
                 };
                 let responses = self.send_requests(&[request]).await?;
@@ -718,7 +726,7 @@ impl Client {
 
                 let node = Node {
                     name: attrs.name,
-                    handle: node_id.clone(),
+                    handle: node_id.to_string(),
                     owner: String::default(),
                     size: file.size,
                     kind: NodeKind::File,
@@ -730,20 +738,24 @@ impl Client {
                     sparse_checksum: fingerprint.map(|it| it.checksum),
                     created_at: None,
                     modified_at,
-                    download_id: Some(node_id.clone()),
+                    download_id: Some(node_id.to_string()),
                     thumbnail_handle: None,
                     preview_image_handle: None,
                 };
 
                 nodes.insert(node.handle.clone(), node);
 
-                Ok(Nodes::new(nodes, String::default(), Some(node_id)))
+                Ok(Nodes::new(
+                    nodes,
+                    String::default(),
+                    Some(node_id.to_string()),
+                ))
             }
             NodeKind::Folder => {
                 let request = Request::FetchNodes { c: 1, r: Some(1) };
                 let responses = self
                     .client
-                    .send_requests(&self.state, &[request], &[("n", node_id.as_str())])
+                    .send_requests(&self.state, &[request], &[("n", node_id)])
                     .await?;
 
                 let files = match responses.as_slice() {
@@ -855,7 +867,7 @@ impl Client {
                                 sparse_checksum: fingerprint.map(|it| it.checksum),
                                 created_at: Some(Utc.timestamp_opt(file.ts, 0).unwrap()),
                                 modified_at,
-                                download_id: Some(node_id.clone()),
+                                download_id: Some(node_id.to_string()),
                                 thumbnail_handle,
                                 preview_image_handle,
                             };
@@ -870,10 +882,110 @@ impl Client {
                     }
                 }
 
-                Ok(Nodes::new(nodes, files.sn.clone(), Some(node_id)))
+                Ok(Nodes::new(
+                    nodes,
+                    files.sn.clone(),
+                    Some(node_id.to_string()),
+                ))
             }
             _ => unreachable!(),
         }
+    }
+
+    /// Fetches all nodes from a password-protected MEGA link.
+    ///
+    /// Supported URL formats:
+    /// - https://mega.nz/#P!{payload}
+    #[allow(rustdoc::bare_urls)]
+    pub async fn fetch_protected_nodes(&self, url: &str, password: &str) -> Result<Nodes> {
+        let decoded_full = match url.split_at(19) {
+            ("https://mega.nz/#P!", payload) => BASE64_URL_SAFE_NO_PAD.decode(payload)?,
+            _ => {
+                return Err(Error::InvalidUrlFormat);
+            }
+        };
+
+        if decoded_full.len() < 2 {
+            return Err(Error::UrlTooShort);
+        }
+
+        let (&algorithm, rest) = decoded_full.split_first().unwrap();
+        let (&kind, rest) = rest.split_first().unwrap();
+
+        let (key_size, is_folder) = match kind {
+            0 => (FOLDER_KEY_SIZE, true),
+            1 => (FILE_KEY_SIZE, false),
+            _ => {
+                return Err(Error::InvalidUrlFormat);
+            }
+        };
+
+        if decoded_full.len() < 72 + key_size {
+            return Err(Error::UrlTooShort);
+        }
+
+        let (handle, rest) = rest.split_at(6);
+        let (salt, rest) = rest.split_at(32);
+        let (key, mac) = rest.split_at(key_size);
+
+        let dec_key = {
+            use pbkdf2::password_hash::{PasswordHasher, Salt};
+            use pbkdf2::{Algorithm, Params, Pbkdf2};
+
+            let salt = BASE64_STANDARD_NO_PAD.encode(salt);
+            let salt = Salt::new(&salt)?;
+            let params = Params {
+                rounds: 100_000,
+                output_length: 64,
+            };
+
+            let output = Pbkdf2.hash_password_customized(
+                password.as_bytes(),
+                Some(Algorithm::Pbkdf2Sha512.ident()),
+                None,
+                params,
+                salt,
+            )?;
+
+            let output = output.hash.unwrap();
+            output.as_bytes().to_vec()
+        };
+
+        match algorithm {
+            1 => {
+                // It's fine to unwrap here, HMAC can take keys of any size.
+                let mut hmac: Hmac<Sha256> =
+                    Mac::new_from_slice(&decoded_full[..40 + key_size]).unwrap();
+                hmac.update(&dec_key[32..64]);
+                hmac.verify_slice(mac)?;
+            }
+            2 => {
+                // It's fine to unwrap here, HMAC can take keys of any size.
+                let mut hmac: Hmac<Sha256> = Mac::new_from_slice(&dec_key[32..64]).unwrap();
+                hmac.update(&decoded_full[..40 + key_size]);
+                hmac.verify_slice(mac)?;
+            }
+            version => {
+                return Err(Error::InvalidAlgorithmVersion { version });
+            }
+        }
+
+        let handle = BASE64_URL_SAFE_NO_PAD.encode(handle);
+        let kind = if is_folder { "folder" } else { "file" };
+
+        let derived_key = {
+            let derived_key: Vec<u8> = key
+                .iter()
+                .copied()
+                .zip(dec_key.into_iter())
+                .map(|(a, b)| a ^ b)
+                .collect();
+
+            BASE64_URL_SAFE_NO_PAD.encode(&derived_key)
+        };
+
+        let url = format!("https://mega.nz/{kind}/{handle}#{derived_key}");
+        self.fetch_public_nodes(&url).await
     }
 
     /// Returns the status of the current storage quotas.

@@ -807,6 +807,7 @@ dependencies = [
  "futures",
  "hex",
  "hkdf",
+ "hmac",
  "indicatif",
  "pbkdf2",
  "rand",

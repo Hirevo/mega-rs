@@ -11,6 +11,15 @@ pub enum Error {
     /// Missing user session.
     #[error("missing user session (consider logging in first)")]
     MissingUserSession,
+    /// Invalid URL format.
+    #[error("invalid URL format")]
+    InvalidUrlFormat,
+    /// The URL too short.
+    #[error("the URL too short")]
+    UrlTooShort,
+    /// Invalid algorithm version.
+    #[error("invalid algorithm version")]
+    InvalidAlgorithmVersion { version: u8 },
     /// Invalid session kind.
     #[error("invalid session kind")]
     InvalidSessionKind,
@@ -109,6 +118,13 @@ pub enum Error {
         /// The source `hkdf` invalid PRK length error.
         #[from]
         source: hkdf::InvalidPrkLength,
+    },
+    /// HMAC verification error.
+    #[error("HMAC mismatch (invalid link or wrong password)")]
+    HmacMismatch {
+        /// The source `hmac` verification error.
+        #[from]
+        source: hmac::digest::MacError,
     },
     /// AES-GCM error.
     #[error("AES-GCM error: {source}")]
