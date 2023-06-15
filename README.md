@@ -53,10 +53,11 @@ Features
 - [x] Retries (exponential-backoff) support
 - [x] Downloading thumbnails and preview images
 - [x] Uploading thumbnails and preview images
-- [x] Support for public shared links
-- [ ] Support for password-protected shared links
-- [ ] Create public shared links to owned nodes
-- [ ] Uploading to shared private folders
+- [x] Listing and downloading from public shared links
+- [x] Listing and downloading from password-protected shared links
+- [ ] Creating public shared links to owned nodes
+- [ ] Creating password-protected shared links to owned nodes
+- [ ] Support for privately-shared nodes (shares between MEGA contacts)
 - [x] Server-to-Client events support
 
 Examples
