@@ -29,6 +29,7 @@ use crate::fingerprint::NodeFingerprint;
 use crate::http::{ClientState, HttpClient, UserSession};
 use crate::protocol::commands::{Request, Response, UploadAttributes};
 use crate::protocol::events::{EventBatchResponse, EventResponse, EventResponseKind};
+use crate::protocol::{FILE_KEY_SIZE, FOLDER_KEY_SIZE, USER_KEY_SIZE, USER_SID_SIZE};
 
 pub(crate) const DEFAULT_API_ORIGIN: &str = "https://g.api.mega.co.nz/";
 
@@ -205,16 +206,18 @@ impl Client {
                 todo!()
             }
             (version, _) => {
-                return Err(Error::UnknownUserLoginVersion(version));
+                return Err(Error::UnknownUserLoginVersion { version });
             }
         };
 
+        let sek: [u8; 16] = rand::random();
+
         let request = Request::Login {
-            user: email.clone(),
-            user_handle: user_handle.clone(),
+            user: Some(email.clone()),
+            user_handle: Some(user_handle.clone()),
             si: None,
             mfa: mfa.map(|it| it.to_string()),
-            session_key: None,
+            sek: Some(BASE64_URL_SAFE_NO_PAD.encode(&sek)),
         };
         let responses = self.send_requests(&[request]).await?;
 
@@ -228,10 +231,26 @@ impl Client {
             }
         };
 
-        let mut key = BASE64_URL_SAFE_NO_PAD.decode(&response.k)?;
-        utils::decrypt_ebc_in_place(&login_key, &mut key);
+        let key: [u8; 16] = {
+            let key = (response.key.as_ref())
+                .ok_or_else(|| Error::MissingResponseField { field: "k" })?;
+            let mut key = BASE64_URL_SAFE_NO_PAD.decode(key)?;
+            utils::decrypt_ebc_in_place(&login_key, &mut key);
+            key.try_into().map_err(|_| Error::InvalidResponseFormat)?
+        };
 
-        let t = BASE64_URL_SAFE_NO_PAD.decode(&response.csid)?;
+        let sek: [u8; 16] = {
+            let sek = (response.sek.as_ref())
+                .ok_or_else(|| Error::MissingResponseField { field: "sek" })?;
+            let sek = BASE64_URL_SAFE_NO_PAD.decode(sek)?;
+            sek.try_into().map_err(|_| Error::InvalidResponseFormat)?
+        };
+
+        let t = {
+            let csid = (response.csid.as_ref())
+                .ok_or_else(|| Error::MissingResponseField { field: "csid" })?;
+            BASE64_URL_SAFE_NO_PAD.decode(csid)?
+        };
         let (m, _) = utils::get_mpi(&t);
 
         let mut privk = BASE64_URL_SAFE_NO_PAD.decode(&response.privk)?;
@@ -244,11 +263,97 @@ impl Client {
 
         self.state.session = Some(UserSession {
             sid,
-            key: key[..16].try_into().unwrap(),
+            key,
+            sek,
             user_handle: response.u.clone(),
         });
 
         Ok(())
+    }
+
+    /// Resumes a session with MEGA from its serialized representation.
+    pub async fn resume_session(&mut self, session: &str) -> Result<()> {
+        let session = BASE64_URL_SAFE_NO_PAD.decode(session)?;
+
+        match session[0] {
+            1 => {}
+            2 => {
+                // folder session, not supported.
+                return Err(Error::InvalidSessionKind);
+            }
+            _ => {
+                // unknown session kind, not supported.
+                return Err(Error::InvalidSessionKind);
+            }
+        }
+
+        let (key, sid) = session[1..].split_at(16);
+
+        let mut key: [u8; 16] = key.try_into().unwrap();
+        let sid = BASE64_URL_SAFE_NO_PAD.encode(sid);
+
+        let sek: [u8; 16] = rand::random();
+
+        let request = Request::Login {
+            user: None,
+            user_handle: None,
+            si: None,
+            mfa: None,
+            sek: Some(BASE64_URL_SAFE_NO_PAD.encode(&sek)),
+        };
+        let responses = self
+            .client
+            .send_requests(&self.state, &[request], &[("sid", sid.as_str())])
+            .await?;
+
+        let response = match responses.as_slice() {
+            [Response::Login(response)] => response,
+            [Response::Error(code)] => {
+                return Err(Error::from(*code));
+            }
+            _ => {
+                return Err(Error::InvalidResponseType);
+            }
+        };
+
+        let sek: [u8; 16] = {
+            let sek = (response.sek.as_ref())
+                .ok_or_else(|| Error::MissingResponseField { field: "sek" })?;
+            let sek = BASE64_URL_SAFE_NO_PAD.decode(sek)?;
+            sek.try_into().map_err(|_| Error::InvalidResponseFormat)?
+        };
+
+        utils::decrypt_ebc_in_place(&sek, &mut key);
+
+        self.state.session = Some(UserSession {
+            sid,
+            key,
+            sek,
+            user_handle: response.u.clone(),
+        });
+
+        Ok(())
+    }
+
+    /// Serializes the current session with MEGA.
+    pub async fn serialize_session(&self) -> Result<String> {
+        let session = self
+            .state
+            .session
+            .as_ref()
+            .ok_or(Error::MissingUserSession)?;
+
+        let mut serialized: Vec<u8> = Vec::with_capacity(1 + USER_KEY_SIZE + USER_SID_SIZE);
+        serialized.push(1);
+
+        let mut key = session.key;
+        utils::encrypt_ebc_in_place(&session.sek, &mut key);
+        serialized.extend(key);
+
+        let mut sid = BASE64_URL_SAFE_NO_PAD.decode(&session.sid)?;
+        serialized.append(&mut sid);
+
+        Ok(BASE64_URL_SAFE_NO_PAD.encode(serialized))
     }
 
     /// Logs out of the current session with MEGA.
@@ -337,8 +442,8 @@ impl Client {
 
                         // File keys are 32 bytes and folder keys are 16 bytes.
                         // Other sizes are considered invalid.
-                        if (file.kind.is_file() && file_key.len() != 32)
-                            || (!file.kind.is_file() && file_key.len() != 16)
+                        if (file.kind.is_file() && file_key.len() != FILE_KEY_SIZE)
+                            || (!file.kind.is_file() && file_key.len() != FOLDER_KEY_SIZE)
                         {
                             return None;
                         }
@@ -668,8 +773,8 @@ impl Client {
 
                                 // File keys are 32 bytes and folder keys are 16 bytes.
                                 // Other sizes are considered invalid.
-                                if (file.kind.is_file() && file_key.len() != 32)
-                                    || (!file.kind.is_file() && file_key.len() != 16)
+                                if (file.kind.is_file() && file_key.len() != FILE_KEY_SIZE)
+                                    || (!file.kind.is_file() && file_key.len() != FOLDER_KEY_SIZE)
                                 {
                                     return None;
                                 }
@@ -889,7 +994,7 @@ impl Client {
         let (_, condensed_mac) = futures::try_join!(download_future, condensed_mac_future)?;
 
         if condensed_mac != node.condensed_mac.unwrap_or_default() {
-            return Err(Error::MacMismatch);
+            return Err(Error::CondensedMacMismatch);
         }
 
         Ok(())
@@ -1021,7 +1126,7 @@ impl Client {
             BASE64_URL_SAFE_NO_PAD.encode(&buffer)
         };
 
-        let mut key = [0u8; 32];
+        let mut key = [0u8; FILE_KEY_SIZE];
         key[..16].copy_from_slice(&aes_key);
         key[16..24].copy_from_slice(&aes_iv[..8]);
         key[24..].copy_from_slice(&condensed_mac);
@@ -1459,7 +1564,7 @@ impl Client {
                 if code == ErrorCode::EAGAIN {
                     continue;
                 }
-                return Err(Error::MegaError(code));
+                return Err(Error::MegaError { code });
             } else {
                 let response = json::from_value(value)?;
                 return Ok(response);
@@ -1479,7 +1584,7 @@ impl Client {
         for event in response.events {
             if event.is_number() {
                 let code = json::from_value(event)?;
-                return Err(Error::MegaError(code));
+                return Err(Error::MegaError { code });
             }
 
             let event: EventResponse = json::from_value(event)?;
@@ -1561,7 +1666,7 @@ impl Client {
         for event in response.events {
             if event.is_number() {
                 let code = json::from_value(event)?;
-                return Err(Error::MegaError(code));
+                return Err(Error::MegaError { code });
             }
 
             let event: EventResponse = json::from_value(event)?;
@@ -1663,8 +1768,8 @@ fn construct_event_node(
 
                 // File keys are 32 bytes and folder keys are 16 bytes.
                 // Other sizes are considered invalid.
-                if (file.kind.is_file() && file_key.len() != 32)
-                    || (!file.kind.is_file() && file_key.len() != 16)
+                if (file.kind.is_file() && file_key.len() != FILE_KEY_SIZE)
+                    || (!file.kind.is_file() && file_key.len() != FOLDER_KEY_SIZE)
                 {
                     return None;
                 }
@@ -1978,12 +2083,21 @@ impl EventNodeAttributes {
 /// A MEGA-emitted event.
 #[derive(Debug, PartialEq)]
 pub enum Event {
-    /// A new node has been created.
-    NodeCreated { nodes: Vec<EventNode> },
+    /// New nodes have been created.
+    NodeCreated {
+        /// The created nodes.
+        nodes: Vec<EventNode>,
+    },
     /// An existing node has been updated.
-    NodeUpdated { attrs: EventNodeAttributes },
+    NodeUpdated {
+        /// The updated attributes for the node.
+        attrs: EventNodeAttributes,
+    },
     /// A node has been deleted.
-    NodeDeleted { handle: String },
+    NodeDeleted {
+        /// The handle of the deleted node.
+        handle: String,
+    },
 }
 
 /// A batch of MEGA-emitted events.

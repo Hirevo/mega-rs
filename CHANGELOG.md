@@ -11,7 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `Client::resume_session` method.
+- Added `Client::serialize_session` method.
+
 ### Changed
+
+- Added `#[non_exhaustive]` attribute on `Error` enum.
+- Changed `Error` variants from tuples to named fields.
 
 ### Fixed
 

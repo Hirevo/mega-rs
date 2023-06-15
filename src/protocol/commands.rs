@@ -4,7 +4,7 @@ use json::Value;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::error::{Error, ErrorCode};
+use crate::error::{ErrorCode, Result};
 
 /// Represents the kind of a given node.
 #[repr(u8)]
@@ -69,14 +69,14 @@ pub enum Request {
     #[serde(rename = "us")]
     Login {
         /// The user's email address.
-        #[serde(rename = "user")]
-        user: String,
+        #[serde(rename = "user", skip_serializing_if = "Option::is_none")]
+        user: Option<String>,
         /// The user's handle.
-        #[serde(rename = "uh")]
-        user_handle: String,
+        #[serde(rename = "uh", skip_serializing_if = "Option::is_none")]
+        user_handle: Option<String>,
         /// The session key to use.
         #[serde(rename = "sek", skip_serializing_if = "Option::is_none")]
-        session_key: Option<String>,
+        sek: Option<String>,
         /// TODO
         #[serde(rename = "si", skip_serializing_if = "Option::is_none")]
         si: Option<String>,
@@ -280,9 +280,11 @@ pub struct LoginResponse {
     #[serde(rename = "ach")]
     pub ach: i32,
     #[serde(rename = "csid")]
-    pub csid: String,
+    pub csid: Option<String>,
     #[serde(rename = "k")]
-    pub k: String,
+    pub key: Option<String>,
+    #[serde(rename = "sek")]
+    pub sek: Option<String>,
     #[serde(rename = "privk")]
     pub privk: String,
     #[serde(rename = "u")]
@@ -503,7 +505,7 @@ pub struct MoveResponse {}
 pub struct DeleteResponse {}
 
 impl Request {
-    pub(crate) fn parse_response_data(&self, value: Value) -> Result<Response, Error> {
+    pub(crate) fn parse_response_data(&self, value: Value) -> Result<Response> {
         if value.is_number() {
             let code = json::from_value(value)?;
             return Ok(Response::Error(code));
