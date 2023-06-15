@@ -10,6 +10,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use cipher::generic_array::GenericArray;
 use cipher::{BlockDecryptMut, BlockEncrypt, BlockEncryptMut, KeyInit, KeyIvInit, StreamCipher};
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use static_assertions::assert_impl_all;
 use url::Url;
 
 mod attributes;
@@ -134,6 +135,8 @@ pub struct Client {
     /// The HTTP client.
     pub(crate) client: Box<dyn HttpClient>,
 }
+
+assert_impl_all!(Client: Send, Sync);
 
 impl Client {
     /// Creates a builder to initialize a [`Client`] instance.
@@ -2111,6 +2114,8 @@ pub struct EventBatch {
     pub(crate) to: String,
 }
 
+assert_impl_all!(EventBatch: Send, Sync);
+
 impl EventBatch {
     pub(crate) fn new(events: Vec<Event>, from: String, to: String) -> Self {
         Self { events, from, to }
@@ -2255,6 +2260,8 @@ pub struct Nodes {
     /// The ID of the public link these nodes are from.
     pub(crate) download_id: Option<String>,
 }
+
+assert_impl_all!(Nodes: Send, Sync);
 
 impl Nodes {
     pub(crate) fn new(
