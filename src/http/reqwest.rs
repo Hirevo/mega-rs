@@ -103,7 +103,7 @@ impl HttpClient for reqwest::Client {
         Err(Error::MaxRetriesReached)
     }
 
-    async fn get(&self, url: Url) -> Result<Pin<Box<dyn AsyncRead>>> {
+    async fn get(&self, url: Url) -> Result<Pin<Box<dyn AsyncRead + Send>>> {
         let stream = self
             .get(url)
             .send()
@@ -119,7 +119,7 @@ impl HttpClient for reqwest::Client {
         url: Url,
         body: Pin<Box<dyn AsyncRead + Send + Sync>>,
         content_length: Option<u64>,
-    ) -> Result<Pin<Box<dyn AsyncRead>>> {
+    ) -> Result<Pin<Box<dyn AsyncRead + Send>>> {
         let stream = FramedRead::new(body.compat(), BytesCodec::new());
         let body = Body::wrap_stream(stream);
         let stream = {

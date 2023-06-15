@@ -50,7 +50,7 @@ pub struct ClientState {
 }
 
 #[async_trait]
-pub trait HttpClient {
+pub trait HttpClient: Send + Sync {
     /// Sends the given requests to MEGA's API and parses the responses accordingly.
     async fn send_requests(
         &self,
@@ -60,7 +60,7 @@ pub trait HttpClient {
     ) -> Result<Vec<Response>>;
 
     /// Initiates a simple GET request, returning the response body as a reader.
-    async fn get(&self, url: Url) -> Result<Pin<Box<dyn AsyncRead>>>;
+    async fn get(&self, url: Url) -> Result<Pin<Box<dyn AsyncRead + Send>>>;
 
     /// Initiates a simple POST request, with body and optional `content-length`, returning the response body as a reader.
     async fn post(
@@ -68,5 +68,5 @@ pub trait HttpClient {
         url: Url,
         body: Pin<Box<dyn AsyncRead + Send + Sync>>,
         content_length: Option<u64>,
-    ) -> Result<Pin<Box<dyn AsyncRead>>>;
+    ) -> Result<Pin<Box<dyn AsyncRead + Send>>>;
 }
