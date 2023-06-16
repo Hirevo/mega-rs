@@ -7,11 +7,10 @@ use aes_gcm::{AeadInPlace, Aes128Gcm};
 use base64::prelude::{Engine, BASE64_URL_SAFE_NO_PAD};
 use cipher::BlockDecrypt;
 use hkdf::Hkdf;
-use pbkdf2::password_hash::{PasswordHasher, Salt};
-use pbkdf2::{Algorithm, Params, Pbkdf2};
+use pbkdf2::pbkdf2_hmac_array;
 use rand::distributions::{Alphanumeric, DistString};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use sha2::{Sha256, Sha512};
 
 use crate::http::UserSession;
 use crate::protocol::commands::UserAttributesResponse;
@@ -44,23 +43,8 @@ pub(crate) fn prepare_key_v1(password: &[u8]) -> [u8; 16] {
     data.into()
 }
 
-pub(crate) fn prepare_key_v2(password: &[u8], salt: &str) -> Result<Vec<u8>> {
-    let salt = Salt::new(salt)?;
-    let params = Params {
-        rounds: 100_000,
-        output_length: 32,
-    };
-
-    let output = Pbkdf2.hash_password_customized(
-        password,
-        Some(Algorithm::Pbkdf2Sha512.ident()),
-        None,
-        params,
-        salt,
-    )?;
-
-    let output = output.hash.unwrap();
-    Ok(output.as_bytes().to_vec())
+pub(crate) fn prepare_key_v2(password: &[u8], salt: &[u8]) -> [u8; 32] {
+    pbkdf2_hmac_array::<Sha512, 32>(password, salt, 100_000)
 }
 
 pub(crate) fn get_mpi(data: &[u8]) -> (rsa::BigUint, &[u8]) {

@@ -98,13 +98,6 @@ pub enum Error {
         #[from]
         source: base64::DecodeError,
     },
-    /// PBKDF2 error.
-    #[error("PBKDF2 error: {source}")]
-    Pbkdf2Error {
-        /// The source `pbkdf2` error.
-        #[from]
-        source: pbkdf2::password_hash::Error,
-    },
     /// HKDF error (invalid length).
     #[error("HKDF error: {source}")]
     HkdfInvalidLengthError {
