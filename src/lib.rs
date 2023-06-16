@@ -194,7 +194,6 @@ impl Client {
                 (key, user_handle)
             }
             (2, Some(salt)) => {
-                // TODO: investigate if we really need to re-encode using standard base64 alphabet (for the `pbkdf2` crate).
                 let salt = BASE64_URL_SAFE_NO_PAD.decode(salt)?;
 
                 let key = utils::prepare_key_v2(password.as_bytes(), salt.as_slice());
