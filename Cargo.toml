@@ -6,8 +6,8 @@ authors = ["Nicolas Polomack <nicolas@polomack.eu>"]
 description = "A client API library for interacting with MEGA"
 repository = "https://github.com/Hirevo/mega-rs"
 documentation = "https://docs.rs/mega"
-keywords = ["protocol", "api", "mega", "web"]
-categories = ["api-bindings"]
+keywords = ["mega", "api", "cloud", "storage"]
+categories = ["api-bindings", "web-programming", "web-programming::http-client"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
