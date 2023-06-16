@@ -5,13 +5,14 @@ use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 use aes::Aes128;
-use base64::prelude::{Engine, BASE64_STANDARD_NO_PAD, BASE64_URL_SAFE_NO_PAD};
+use base64::prelude::{Engine, BASE64_URL_SAFE_NO_PAD};
 use chrono::{DateTime, TimeZone, Utc};
 use cipher::generic_array::GenericArray;
 use cipher::{BlockDecryptMut, BlockEncrypt, BlockEncryptMut, KeyInit, KeyIvInit, StreamCipher};
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use hmac::{Hmac, Mac};
-use sha2::Sha256;
+use pbkdf2::pbkdf2_hmac_array;
+use sha2::{Sha256, Sha512};
 use static_assertions::assert_impl_all;
 use url::Url;
 
@@ -195,9 +196,8 @@ impl Client {
             (2, Some(salt)) => {
                 // TODO: investigate if we really need to re-encode using standard base64 alphabet (for the `pbkdf2` crate).
                 let salt = BASE64_URL_SAFE_NO_PAD.decode(salt)?;
-                let salt = BASE64_STANDARD_NO_PAD.encode(salt);
 
-                let key = utils::prepare_key_v2(password.as_bytes(), salt.as_str())?;
+                let key = utils::prepare_key_v2(password.as_bytes(), salt.as_slice());
 
                 let (key, user_handle) = key.split_at(16);
 
@@ -928,28 +928,7 @@ impl Client {
         let (salt, rest) = rest.split_at(32);
         let (key, mac) = rest.split_at(key_size);
 
-        let dec_key = {
-            use pbkdf2::password_hash::{PasswordHasher, Salt};
-            use pbkdf2::{Algorithm, Params, Pbkdf2};
-
-            let salt = BASE64_STANDARD_NO_PAD.encode(salt);
-            let salt = Salt::new(&salt)?;
-            let params = Params {
-                rounds: 100_000,
-                output_length: 64,
-            };
-
-            let output = Pbkdf2.hash_password_customized(
-                password.as_bytes(),
-                Some(Algorithm::Pbkdf2Sha512.ident()),
-                None,
-                params,
-                salt,
-            )?;
-
-            let output = output.hash.unwrap();
-            output.as_bytes().to_vec()
-        };
+        let dec_key = pbkdf2_hmac_array::<Sha512, 64>(password.as_bytes(), salt, 100_000);
 
         match algorithm {
             1 => {
