@@ -25,7 +25,7 @@
 About
 -----
 
-This is an API client library for interacting with MEGA's API using Rust.  
+This is an (unofficial) API client library for interacting with MEGA's API using Rust.  
 
 This library aims to implement most (if not all) interactions with MEGA's API in pure Rust.  
 
@@ -37,6 +37,12 @@ It can also allow for more fine-grained control over how the operations are carr
 
 Features
 --------
+
+> All features marked as not yet implemented are ideas of things that could be done, and not necessarily an indication of it currently being worked on.
+
+> These are also non-exhaustive, so if there is a feature that you'd like to see done, feel free to open an issue to show your interest in it, regardless of whether it is mentionned in this list or not.
+
+> If you wish to contribute to this project, feel free to use this list to see if there is something you would be interested to either work on, or simply sharing some of your knowledge on how it could be achieved.
 
 - [x] Login with MEGA
   - [x] MFA support
@@ -53,10 +59,11 @@ Features
 - [x] Retries (exponential-backoff) support
 - [x] Downloading thumbnails and preview images
 - [x] Uploading thumbnails and preview images
-- [x] Support for public shared links
-- [ ] Support for password-protected shared links
-- [ ] Create public shared links to owned nodes
-- [ ] Uploading to shared private folders
+- [x] Listing and downloading from public shared links
+- [x] Listing and downloading from password-protected shared links
+- [ ] Creating public shared links to owned nodes
+- [ ] Creating password-protected shared links to owned nodes
+- [ ] Support for privately-shared nodes (direct shares between MEGA contacts)
 - [x] Server-to-Client events support
 
 Examples

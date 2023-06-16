@@ -31,6 +31,8 @@ jobs:
         env:
           MEGA_EMAIL: ${{ secrets.MEGA_EMAIL }}
           MEGA_PASSWORD: ${{ secrets.MEGA_PASSWORD }}
-          MEGA_PUBLIC_URL: ${{ secrets.MEGA_PUBLIC_URL }}
           MEGA_SESSION: ${{ secrets.MEGA_SESSION }}
+          MEGA_PUBLIC_URL: ${{ secrets.MEGA_PUBLIC_URL }}
+          MEGA_PROTECTED_URL: ${{ secrets.MEGA_PROTECTED_URL }}
+          MEGA_PROTECTED_PASSWORD: ${{ secrets.MEGA_PROTECTED_PASSWORD }}
         run: cargo test --all-features
