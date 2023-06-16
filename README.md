@@ -29,7 +29,7 @@ This is an (unofficial) API client library for interacting with MEGA's API using
 
 This library aims to implement most (if not all) interactions with MEGA's API in pure Rust.  
 
-This allows to Rust applications to access MEGA without needing to depend on the [MEGAcmd] command-line tool being installed on the host system.  
+This allows Rust applications to access MEGA without needing to depend on the [MEGAcmd] command-line tool being installed on the host system.  
 
 It can also allow for more fine-grained control over how the operations are carried-out, like downloading nodes concurrently.  
 
