@@ -89,7 +89,27 @@ pub enum Request {
     Logout {},
     /// Message for getting information about the current user.
     #[serde(rename = "ug")]
-    UserInfo {},
+    UserInfo {
+        #[serde(rename = "v", skip_serializing_if = "Option::is_none")]
+        v: Option<i32>,
+    },
+    /// Message for listing user sessions.
+    #[serde(rename = "usl")]
+    ListSessions {
+        /// Set to 1 to get additional id and alive information.
+        #[serde(rename = "x", skip_serializing_if = "Option::is_none")]
+        x: Option<i32>,
+    },
+    /// Message for terminating user sessions.
+    #[serde(rename = "usr")]
+    KillSessions {
+        /// Set to 1 to kill all sessions except the current one.
+        #[serde(rename = "ko", skip_serializing_if = "Option::is_none")]
+        ko: Option<i32>,
+        /// The IDs of the sessions to kill.
+        #[serde(rename = "s", skip_serializing_if = "Vec::is_empty")]
+        s: Vec<String>,
+    },
     /// Message for fetching user-related attributes.
     #[serde(rename = "uga")]
     UserAttributes {
@@ -228,6 +248,7 @@ pub enum Request {
 /// Represents a response message from MEGA's API.
 ///
 /// Keep in mind that these message definitions have been somewhat reverse-engineered from MEGA's C++ SDK, and are, therefore, not complete.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Response {
     /// An error response.
     Error(ErrorCode),
@@ -239,6 +260,10 @@ pub enum Response {
     Logout(LogoutResponse),
     /// Response for the `Request::UserInfo` message.
     UserInfo(UserInfoResponse),
+    /// Response for the `Request::ListSessions` message.
+    ListSessions(ListSessionsResponse),
+    /// Response for the `Request::KillSessions` message.
+    KillSessions(KillSessionsResponse),
     /// Response for the `Request::UserAttributes` message.
     UserAttributes(UserAttributesResponse),
     /// Response for the `Request::Quota` message.
@@ -304,6 +329,18 @@ pub struct UserInfoResponse {
     pub s: i32,
     #[serde(rename = "email")]
     pub email: String,
+    #[serde(rename = "firstname")]
+    pub firstname: String,
+    #[serde(rename = "lastname")]
+    pub lastname: String,
+    #[serde(rename = "country")]
+    pub country: String,
+    #[serde(rename = "birthday")]
+    pub birthday: String,
+    #[serde(rename = "birthmonth")]
+    pub birthmonth: String,
+    #[serde(rename = "birthyear")]
+    pub birthyear: String,
     #[serde(rename = "name")]
     pub name: String,
     #[serde(rename = "k")]
@@ -319,6 +356,38 @@ pub struct UserInfoResponse {
     #[serde(rename = "ts")]
     pub ts: String,
 }
+
+/// Response for the `Request::ListSessions` message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ListSessionsResponse {
+    pub sessions: Vec<SessionInfo>,
+}
+
+/// Represents information about a user session.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionInfo {
+    #[serde(rename = "timestamp")]
+    pub timestamp: i64,
+    #[serde(rename = "mru")]
+    pub mru: i64,
+    #[serde(rename = "user_agent")]
+    pub user_agent: String,
+    #[serde(rename = "ip")]
+    pub ip: String,
+    #[serde(rename = "country")]
+    pub country: String,
+    #[serde(rename = "current")]
+    pub current: i32,
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "alive")]
+    pub alive: i32,
+}
+
+/// Response for the `Request::KillSessions` message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KillSessionsResponse {}
 
 /// Response for the `Request::UserAttributes` message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -527,6 +596,14 @@ impl Request {
             Request::UserInfo { .. } => {
                 let response = json::from_value(value)?;
                 Response::UserInfo(response)
+            }
+            Request::ListSessions { .. } => {
+                let response = json::from_value(value)?;
+                Response::ListSessions(response)
+            }
+            Request::KillSessions { .. } => {
+                let response = json::from_value(value)?;
+                Response::KillSessions(response)
             }
             Request::UserAttributes { .. } => {
                 let response = json::from_value(value)?;
