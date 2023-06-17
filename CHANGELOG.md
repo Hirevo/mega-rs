@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+[0.7.0] - 2023-06-17
+--------------------
+
+### Added
+
 - Added `Client::has_user_session` method.
 - Added `Client::list_sessions` method.
 - Added `Client::kill_sessions` method.
@@ -18,12 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `Client::get_current_user_info` method.
 - Added `SessionInfo` struct.
 - Added `UserInfo` struct.
-
-### Changed
-
-### Fixed
-
-### Removed
 
 [0.6.0] - 2023-06-16
 --------------------
@@ -41,8 +46,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed `Client` to implement the `Send` and `Sync` traits.
 - Changed `ClientBuilder::timeout` method to take an `Option<Duration>` instead of just `Duration`.
 - Upgraded dependencies
-
-### Fixed
 
 ### Removed
 
