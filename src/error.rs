@@ -19,7 +19,10 @@ pub enum Error {
     UrlTooShort,
     /// Invalid algorithm version.
     #[error("invalid algorithm version")]
-    InvalidAlgorithmVersion { version: u8 },
+    InvalidAlgorithmVersion {
+        /// The encountered algorithm version.
+        version: u8,
+    },
     /// Invalid session kind.
     #[error("invalid session kind")]
     InvalidSessionKind,
@@ -62,6 +65,20 @@ pub enum Error {
     /// The involved event cursors do not match, continuing would result in inconsistencies.
     #[error("the involved event cursors do not match, continuing would result in inconsistencies")]
     EventCursorMismatch,
+    /// UTF-8 validation error.
+    #[error("UTF-8 validation error: {source}")]
+    FromUtf8Error {
+        /// The source error.
+        #[from]
+        source: std::string::FromUtf8Error,
+    },
+    /// Integer parsing error.
+    #[error("integer parse error: {source}")]
+    ParseIntError {
+        /// The source error.
+        #[from]
+        source: std::num::ParseIntError,
+    },
     /// Reqwest error.
     #[cfg(feature = "reqwest")]
     #[error("`reqwest` error: {source}")]

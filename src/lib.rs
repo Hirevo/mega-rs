@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use aes::Aes128;
 use base64::prelude::{Engine, BASE64_URL_SAFE_NO_PAD};
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use cipher::generic_array::GenericArray;
 use cipher::{BlockDecryptMut, BlockEncrypt, BlockEncryptMut, KeyInit, KeyIvInit, StreamCipher};
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -21,11 +21,13 @@ mod error;
 mod fingerprint;
 mod http;
 mod protocol;
+mod sessions;
 mod utils;
 
 pub use crate::error::{Error, ErrorCode, Result};
 pub use crate::fingerprint::{compute_condensed_mac, compute_sparse_checksum};
 pub use crate::protocol::commands::{FileNode, NodeKind};
+pub use crate::sessions::SessionInfo;
 pub use crate::utils::StorageQuotas;
 
 use crate::attributes::NodeAttributes;
@@ -370,6 +372,116 @@ impl Client {
                 self.state.session = None;
                 Ok(())
             }
+            [Response::Error(code)] => Err(Error::from(*code)),
+            _ => Err(Error::InvalidResponseType),
+        }
+    }
+
+    /// Returns whether this client currently has a user session.
+    pub fn has_user_session(&self) -> bool {
+        self.state.session.is_some()
+    }
+
+    /// Get information about the current user.
+    pub async fn get_current_user_info(&self) -> Result<UserInfo> {
+        let request = Request::UserInfo { v: None };
+        let responses = self.send_requests(&[request]).await?;
+
+        let response = match responses.as_slice() {
+            [Response::UserInfo(response)] => response,
+            [Response::Error(code)] => {
+                return Err(Error::from(*code));
+            }
+            _ => {
+                return Err(Error::InvalidResponseType);
+            }
+        };
+
+        Ok(UserInfo {
+            id: response.u.clone(),
+            first_name: {
+                let decoded = BASE64_URL_SAFE_NO_PAD.decode(&response.firstname)?;
+                String::from_utf8(decoded)?
+            },
+            last_name: {
+                let decoded = BASE64_URL_SAFE_NO_PAD.decode(&response.lastname)?;
+                String::from_utf8(decoded)?
+            },
+            email: response.email.clone(),
+            country_code: {
+                let decoded = BASE64_URL_SAFE_NO_PAD.decode(&response.country)?;
+                String::from_utf8(decoded)?
+            },
+            birth_date: {
+                let day: u32 = {
+                    let decoded = BASE64_URL_SAFE_NO_PAD.decode(&response.birthday)?;
+                    String::from_utf8(decoded)?.parse()?
+                };
+                let month: u32 = {
+                    let decoded = BASE64_URL_SAFE_NO_PAD.decode(&response.birthmonth)?;
+                    String::from_utf8(decoded)?.parse()?
+                };
+                let year: i32 = {
+                    let decoded = BASE64_URL_SAFE_NO_PAD.decode(&response.birthyear)?;
+                    String::from_utf8(decoded)?.parse()?
+                };
+
+                NaiveDate::from_ymd_opt(year, month, day).unwrap_or_default()
+            },
+        })
+    }
+
+    /// Lists the user's MEGA sessions.
+    pub async fn list_sessions(&self) -> Result<Vec<SessionInfo>> {
+        let request = Request::ListSessions { x: Some(1) };
+        let responses = self.send_requests(&[request]).await?;
+
+        let response = match responses.as_slice() {
+            [Response::ListSessions(response)] => response,
+            [Response::Error(code)] => {
+                return Err(Error::from(*code));
+            }
+            _ => {
+                return Err(Error::InvalidResponseType);
+            }
+        };
+
+        Ok(response.sessions.iter().map(SessionInfo::from).collect())
+    }
+
+    /// Kills the specified MEGA sessions.
+    pub async fn kill_sessions<I, T>(&self, session_ids: I) -> Result<()>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        let request = Request::KillSessions {
+            ko: None,
+            s: session_ids.into_iter().map(|it| it.into()).collect(),
+        };
+        let responses = self.send_requests(&[request]).await?;
+
+        match responses.as_slice() {
+            [Response::Error(ErrorCode::OK)] => Ok(()),
+            [Response::Error(code)] => Err(Error::from(*code)),
+            _ => Err(Error::InvalidResponseType),
+        }
+    }
+
+    /// Kills all MEGA sessions (except the current one).
+    pub async fn kill_all_sessions<I, T>(&self) -> Result<()>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        let request = Request::KillSessions {
+            ko: Some(1),
+            s: Vec::default(),
+        };
+        let responses = self.send_requests(&[request]).await?;
+
+        match responses.as_slice() {
+            [Response::Error(ErrorCode::OK)] => Ok(()),
             [Response::Error(code)] => Err(Error::from(*code)),
             _ => Err(Error::InvalidResponseType),
         }
@@ -2601,4 +2713,21 @@ impl LastModified {
             LastModified::Set(datetime) => datetime,
         }
     }
+}
+
+/// Represents information about a MEGA user.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UserInfo {
+    /// The ID of the user.
+    pub id: String,
+    /// The first name of the user.
+    pub first_name: String,
+    /// The last name of the user.
+    pub last_name: String,
+    /// The main email of the user.
+    pub email: String,
+    /// The birth date of the user.
+    pub birth_date: NaiveDate,
+    /// The country code of the user.
+    pub country_code: String,
 }

@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `Client::has_user_session` method.
+- Added `Client::list_sessions` method.
+- Added `Client::kill_sessions` method.
+- Added `Client::kill_all_sessions` method.
+- Added `Client::get_current_user_info` method.
+- Added `SessionInfo` struct.
+- Added `UserInfo` struct.
+
 ### Changed
 
 ### Fixed
