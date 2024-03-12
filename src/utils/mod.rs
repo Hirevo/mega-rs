@@ -214,6 +214,7 @@ pub(crate) fn extract_attachments(attrs_str: &str) -> (Option<String>, Option<St
 }
 
 /// Produces an infinite iterator of all the consecutive chunk bounds.
+#[allow(unused)]
 pub(crate) fn chunks_iterator() -> impl Iterator<Item = (u64, u64)> {
     std::iter::successors(Some(131_072), |&(mut chunk_size): &u64| {
         if chunk_size < 1_048_576 {
