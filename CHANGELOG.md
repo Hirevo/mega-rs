@@ -13,7 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Logs are now available using the `tracing` crate.
+
 ### Fixed
+
+- Fixed panic with RSA-encrypted nodes (which happens when nodes are shared with contacts or uploaded from other users).
 
 ### Removed
 
