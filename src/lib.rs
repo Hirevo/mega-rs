@@ -570,7 +570,8 @@ impl Client {
                         if file_key.len() >= 44 {
                             // Keys bigger than this size are using RSA instead of AES.
                             // We don't support this as of right now.
-                            todo!();
+                            // todo!();
+                            return None;
                         }
 
                         let mut file_key = BASE64_URL_SAFE_NO_PAD.decode(file_key).ok()?;
