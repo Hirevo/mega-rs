@@ -10,6 +10,7 @@ use reqwest::Body;
 use tokio_util::codec::{BytesCodec, FramedRead};
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use url::Url;
+use secrecy::ExposeSecret;
 
 use crate::error::{Error, Result};
 use crate::http::HttpClient;
@@ -18,12 +19,15 @@ use crate::{ClientState, ErrorCode};
 
 #[async_trait]
 impl HttpClient for reqwest::Client {
+    #[tracing::instrument(skip(self, state, query_params))]
     async fn send_requests(
         &self,
         state: &ClientState,
         requests: &[Request],
         query_params: &[(&str, &str)],
     ) -> Result<Vec<Response>> {
+        tracing::trace!(?self, ?state, "preparing MEGA request");
+
         let url = {
             let mut url = state.origin.join("/cs")?;
 
@@ -32,7 +36,7 @@ impl HttpClient for reqwest::Client {
             qs.append_pair("id", id_counter.to_string().as_str());
 
             if let Some(session) = state.session.as_ref() {
-                qs.append_pair("sid", session.sid.as_str());
+                qs.append_pair("sid", session.expose_secret().sid.as_str());
             }
 
             qs.extend_pairs(query_params);
@@ -44,8 +48,9 @@ impl HttpClient for reqwest::Client {
         };
 
         let mut delay = state.min_retry_delay;
-        for i in 0..state.max_retries {
-            if i > 0 {
+        for attempt in 1..=state.max_retries {
+            if attempt > 1 {
+                tracing::debug!(?delay, "sleeping for exponential backoff before retrying");
                 tokio::time::sleep(delay).await;
                 delay *= 2;
                 // TODO: maybe add some small random jitter after the doubling.
@@ -55,10 +60,23 @@ impl HttpClient for reqwest::Client {
             }
 
             // dbg!(&requests);
-            let request = self.post(url.clone()).json(requests).send();
+            tracing::debug!(?attempt, "starting MEGA request attempt");
+
+            let request = async {
+                self.post(url.clone())
+                    .json(requests)
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .bytes()
+                    .await
+            };
+
             let maybe_response = if let Some(timeout) = state.timeout {
+                tracing::debug!(?timeout, "attempting MEGA request with timeout");
                 let Ok(maybe_response) = tokio::time::timeout(timeout, request).await else {
                     // the timeout has been reached, let's retry.
+                    tracing::debug!("MEGA request has timed out");
                     continue;
                 };
                 maybe_response
@@ -66,32 +84,39 @@ impl HttpClient for reqwest::Client {
                 request.await
             };
 
-            let Ok(response) = maybe_response else {
-                // this could be a network issue, let's retry.
-                continue;
-            };
-
-            if !response.status().is_success() {
-                // this could be a server error, let's retry.
-                continue;
-            }
-
-            let Ok(response) = response.bytes().await else {
-                // this could be a network issue, let's retry.
-                continue;
+            let response = match maybe_response {
+                Ok(response) => response,
+                Err(error) => {
+                    // this could be a network issue, let's retry.
+                    tracing::error!(?error, "`reqwest` error when making MEGA request");
+                    continue;
+                }
             };
 
             // try to parse a request-level error first.
             if let Ok(code) = json::from_slice::<ErrorCode>(&response) {
                 if code == ErrorCode::EAGAIN {
                     // this error code suggests we might succeed if retried, let's retry.
+                    tracing::debug!("received `EAGAIN` error code from MEGA");
                     continue;
+                }
+                if code != ErrorCode::OK {
+                    tracing::error!(?code, "received error code from MEGA");
                 }
                 return Err(Error::from(code));
             }
 
-            let responses: Vec<Value> = json::from_slice(&response)?;
             // dbg!(&responses);
+            let responses: Vec<Value> = match json::from_slice(&response) {
+                Ok(responses) => responses,
+                Err(error) => {
+                    tracing::error!(
+                        ?error,
+                        "could not deserialize MEGA response as a JSON array",
+                    );
+                    return Err(error.into());
+                }
+            };
 
             return requests
                 .iter()
@@ -99,6 +124,8 @@ impl HttpClient for reqwest::Client {
                 .map(|(request, response)| request.parse_response_data(response))
                 .collect();
         }
+
+        tracing::error!("maximum amount of retries reached, cancelling MEGA request");
 
         Err(Error::MaxRetriesReached)
     }
@@ -108,6 +135,7 @@ impl HttpClient for reqwest::Client {
             .get(url)
             .send()
             .await?
+            .error_for_status()?
             .bytes_stream()
             .map_err(|err| io::Error::new(io::ErrorKind::Other, err));
 
@@ -133,6 +161,7 @@ impl HttpClient for reqwest::Client {
                 .body(body)
                 .send()
                 .await?
+                .error_for_status()?
                 .bytes_stream()
                 .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
         };

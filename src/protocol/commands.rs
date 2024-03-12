@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use json::Value;
-use serde::{Deserialize, Serialize};
+use secrecy::{ExposeSecret, SecretString};
+use serde::ser::SerializeSeq;
+use serde::{Deserialize, Serialize, Serializer};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use crate::error::{ErrorCode, Result};
@@ -55,34 +57,54 @@ impl NodeKind {
 /// Represents a request message to MEGA's API.
 ///
 /// Keep in mind that these message definitions have been somewhat reverse-engineered from MEGA's C++ SDK, and are, therefore, not complete.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "a")]
 pub enum Request {
     /// Message for initiating a login ceremony.
     #[serde(rename = "us0")]
     PreLogin {
         /// The user's email address.
-        #[serde(rename = "user")]
-        user: String,
+        #[serde(rename = "user", serialize_with = "serialize_secret_string")]
+        user: SecretString,
     },
     /// Message for completing a login ceremony.
     #[serde(rename = "us")]
     Login {
         /// The user's email address.
-        #[serde(rename = "user", skip_serializing_if = "Option::is_none")]
-        user: Option<String>,
+        #[serde(
+            rename = "user",
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "serialize_secret_string_optional"
+        )]
+        user: Option<SecretString>,
         /// The user's handle.
-        #[serde(rename = "uh", skip_serializing_if = "Option::is_none")]
-        user_handle: Option<String>,
+        #[serde(
+            rename = "uh",
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "serialize_secret_string_optional"
+        )]
+        user_handle: Option<SecretString>,
         /// The session key to use.
-        #[serde(rename = "sek", skip_serializing_if = "Option::is_none")]
-        sek: Option<String>,
+        #[serde(
+            rename = "sek",
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "serialize_secret_string_optional"
+        )]
+        sek: Option<SecretString>,
         /// TODO
-        #[serde(rename = "si", skip_serializing_if = "Option::is_none")]
-        si: Option<String>,
+        #[serde(
+            rename = "si",
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "serialize_secret_string_optional"
+        )]
+        si: Option<SecretString>,
         /// The multi-factor token to use.
-        #[serde(rename = "mfa", skip_serializing_if = "Option::is_none")]
-        mfa: Option<String>,
+        #[serde(
+            rename = "mfa",
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "serialize_secret_string_optional"
+        )]
+        mfa: Option<SecretString>,
     },
     /// Message for terminating the current session.
     #[serde(rename = "sml")]
@@ -107,15 +129,19 @@ pub enum Request {
         #[serde(rename = "ko", skip_serializing_if = "Option::is_none")]
         ko: Option<i32>,
         /// The IDs of the sessions to kill.
-        #[serde(rename = "s", skip_serializing_if = "Vec::is_empty")]
-        s: Vec<String>,
+        #[serde(
+            rename = "s",
+            skip_serializing_if = "Vec::is_empty",
+            serialize_with = "serialize_secret_string_vec"
+        )]
+        s: Vec<SecretString>,
     },
     /// Message for fetching user-related attributes.
     #[serde(rename = "uga")]
     UserAttributes {
         /// The user's handle.
-        #[serde(rename = "u")]
-        user_handle: String,
+        #[serde(rename = "u", serialize_with = "serialize_secret_string")]
+        user_handle: SecretString,
         /// The name of the attribute to fetch.
         #[serde(rename = "ua")]
         attribute: String,
@@ -153,11 +179,19 @@ pub enum Request {
         #[serde(rename = "ssl")]
         ssl: i32,
         /// TODO
-        #[serde(rename = "p", skip_serializing_if = "Option::is_none")]
-        p: Option<String>,
+        #[serde(
+            rename = "p",
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "serialize_secret_string_optional"
+        )]
+        p: Option<SecretString>,
         /// The handle of the node to download.
-        #[serde(rename = "n", skip_serializing_if = "Option::is_none")]
-        n: Option<String>,
+        #[serde(
+            rename = "n",
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "serialize_secret_string_optional"
+        )]
+        n: Option<SecretString>,
     },
     /// Message for initiating the upload for a new node.
     #[serde(rename = "u")]
@@ -173,8 +207,8 @@ pub enum Request {
     #[serde(rename = "p")]
     UploadComplete {
         /// The handle of the target parent node.
-        #[serde(rename = "t")]
-        t: String,
+        #[serde(rename = "t", serialize_with = "serialize_secret_string")]
+        t: SecretString,
         /// The attributes for the new node.
         #[serde(rename = "n")]
         n: [UploadAttributes; 1],
@@ -192,8 +226,8 @@ pub enum Request {
         #[serde(rename = "key", skip_serializing_if = "Option::is_none")]
         key: Option<String>,
         /// The handle of the involved node.
-        #[serde(rename = "n")]
-        n: String,
+        #[serde(rename = "n", serialize_with = "serialize_secret_string")]
+        n: SecretString,
         /// The idempotence token (needed for request retries).
         #[serde(rename = "i")]
         i: String,
@@ -202,11 +236,11 @@ pub enum Request {
     #[serde(rename = "m")]
     Move {
         /// The handle of the node to move.
-        #[serde(rename = "n")]
-        n: String,
+        #[serde(rename = "n", serialize_with = "serialize_secret_string")]
+        n: SecretString,
         /// The handle of the target parent node.
-        #[serde(rename = "t")]
-        t: String,
+        #[serde(rename = "t", serialize_with = "serialize_secret_string")]
+        t: SecretString,
         /// The idempotence token (needed for request retries).
         #[serde(rename = "i")]
         i: String,
@@ -215,8 +249,8 @@ pub enum Request {
     #[serde(rename = "d")]
     Delete {
         /// The handle of the node to delete.
-        #[serde(rename = "n")]
-        n: String,
+        #[serde(rename = "n", serialize_with = "serialize_secret_string")]
+        n: SecretString,
         /// The idempotence token (needed for request retries).
         #[serde(rename = "i")]
         i: String,
@@ -225,22 +259,29 @@ pub enum Request {
     #[serde(rename = "ufa")]
     UploadFileAttributes {
         /// The handle of the involved MEGA node.
-        h: Option<String>,
+        #[serde(rename = "h", serialize_with = "serialize_secret_string_optional")]
+        h: Option<SecretString>,
         /// The file attribute handler.
+        #[serde(rename = "fah")]
         fah: Option<String>,
         /// The size of the file to upload.
+        #[serde(rename = "s")]
         s: Option<u64>,
         /// Whether to use HTTPS (by setting it to 2, rarely needed because everything is encrypted already).
+        #[serde(rename = "ssl")]
         ssl: i32,
         /// TODO
+        #[serde(rename = "r")]
         r: Option<i32>,
     },
     /// Message for completing the upload of file attributes.
     #[serde(rename = "pfa")]
     PutFileAttributes {
         /// The handle of the involved MEGA node.
-        n: String,
+        #[serde(rename = "n", serialize_with = "serialize_secret_string")]
+        n: SecretString,
         /// The file attributes' encoded string.
+        #[serde(rename = "fa")]
         fa: String,
     },
 }
@@ -653,4 +694,38 @@ impl Request {
 
         Ok(response)
     }
+}
+
+fn serialize_secret_string<S>(value: &SecretString, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    value.expose_secret().serialize(serializer)
+}
+
+fn serialize_secret_string_optional<S>(
+    value: &Option<SecretString>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    value
+        .as_ref()
+        .map(|secret| secret.expose_secret())
+        .serialize(serializer)
+}
+
+fn serialize_secret_string_vec<S>(
+    value: &Vec<SecretString>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut seq = serializer.serialize_seq(Some(value.len()))?;
+    for item in value {
+        seq.serialize_element(item.expose_secret())?;
+    }
+    seq.end()
 }

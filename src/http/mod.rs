@@ -4,16 +4,19 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::io::AsyncRead;
+use secrecy::{DebugSecret, Secret};
 use url::Url;
+use zeroize::Zeroize;
 
 #[cfg(feature = "reqwest")]
 mod reqwest;
 
 use crate::error::Result;
 use crate::protocol::commands::{Request, Response};
+use crate::utils::rsa::RsaPrivateKey;
 
 /// Stores the data representing a user's session.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Zeroize)]
 pub struct UserSession {
     /// The user's session id.
     pub(crate) sid: String,
@@ -21,9 +24,13 @@ pub struct UserSession {
     pub(crate) key: [u8; 16],
     /// The user's `sek`.
     pub(crate) sek: [u8; 16],
+    /// The user's RSA private key (used for shares).
+    pub(crate) privk: RsaPrivateKey,
     /// The user's handle.
     pub(crate) user_handle: String,
 }
+
+impl DebugSecret for UserSession {}
 
 /// Stores the data representing the client's state.
 #[derive(Debug)]
@@ -46,7 +53,7 @@ pub struct ClientState {
     /// The request counter, for idempotency.
     pub(crate) id_counter: AtomicU64,
     /// The user's session.
-    pub(crate) session: Option<UserSession>,
+    pub(crate) session: Option<Secret<UserSession>>,
 }
 
 #[async_trait]

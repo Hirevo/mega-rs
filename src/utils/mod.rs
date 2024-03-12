@@ -12,6 +12,8 @@ use rand::distributions::{Alphanumeric, DistString};
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Sha512};
 
+pub mod rsa;
+
 use crate::http::UserSession;
 use crate::protocol::commands::UserAttributesResponse;
 use crate::Result;
@@ -45,29 +47,6 @@ pub(crate) fn prepare_key_v1(password: &[u8]) -> [u8; 16] {
 
 pub(crate) fn prepare_key_v2(password: &[u8], salt: &[u8]) -> [u8; 32] {
     pbkdf2_hmac_array::<Sha512, 32>(password, salt, 100_000)
-}
-
-pub(crate) fn get_mpi(data: &[u8]) -> (rsa::BigUint, &[u8]) {
-    let len = (usize::from(data[0]) * 256 + usize::from(data[1]) + 7) >> 3;
-    let (head, tail) = data[2..].split_at(len);
-    (rsa::BigUint::from_bytes_be(head), tail)
-}
-
-pub(crate) fn get_rsa_key(data: &[u8]) -> (rsa::BigUint, rsa::BigUint, rsa::BigUint) {
-    let (p, data) = get_mpi(data);
-    let (q, data) = get_mpi(data);
-    let (d, _) = get_mpi(data);
-    (p, q, d)
-}
-
-pub(crate) fn decrypt_rsa(
-    m: rsa::BigUint,
-    p: rsa::BigUint,
-    q: rsa::BigUint,
-    d: rsa::BigUint,
-) -> rsa::BigUint {
-    let n = p * q;
-    m.modpow(&d, &n)
 }
 
 pub(crate) fn encrypt_ebc_in_place(key: &[u8], data: &mut [u8]) {
@@ -232,6 +211,21 @@ pub(crate) fn extract_attachments(attrs_str: &str) -> (Option<String>, Option<St
     }
 
     (thumbnail_handle, preview_image_handle)
+}
+
+/// Produces an infinite iterator of all the consecutive chunk bounds.
+pub(crate) fn chunks_iterator() -> impl Iterator<Item = (u64, u64)> {
+    std::iter::successors(Some(131_072), |&(mut chunk_size): &u64| {
+        if chunk_size < 1_048_576 {
+            chunk_size += 131_072;
+        }
+        Some(chunk_size)
+    })
+    .scan(0, |start, chunk_size| {
+        let bounds = (*start, *start + chunk_size - 1);
+        *start = bounds.1 + 1;
+        Some(bounds)
+    })
 }
 
 #[cfg(test)]

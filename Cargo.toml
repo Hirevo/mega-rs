@@ -29,6 +29,8 @@ thiserror = "1.0.40"
 url = "2.4.0"
 rand = "0.8.5"
 chrono = "0.4.26"
+static_assertions = "1.1.0"
+zeroize = { version = "1.7.0", features = ["derive"] }
 
 # Cryptography
 aes = "0.8.2"
@@ -40,16 +42,20 @@ cipher = { version = "0.4.4", features = ["block-padding"] }
 aes-gcm = { version = "0.10.2", features = ["std"] }
 pbkdf2 = "0.12.1"
 hkdf = { version = "0.12.3", features = ["std"] }
+num-bigint-dig = { version = "0.8.4", features = ["zeroize"] }
 
 # Checksum computation
 crc32fast = "1.3.2"
+hmac = "0.12.1"
 
 # `reqwest` support
 reqwest = { version = "0.11.18", features = ["json", "stream"], optional = true }
 tokio = { version = "1.28.2", features = ["time"], optional = true }
 tokio-util = { version = "0.7.8", features = ["compat", "codec"], optional = true }
-hmac = "0.12.1"
-static_assertions = "1.1.0"
+
+# Logging
+tracing = "0.1.40"
+secrecy = { version = "0.8.0", features = ["serde"] }
 
 [features]
 default = ["reqwest"]
