@@ -9,10 +9,10 @@ pub struct RsaPrivateKey {
 }
 
 impl RsaPrivateKey {
+    #[allow(dead_code)]
     pub fn decrypt(&self, data: &[u8]) -> Vec<u8> {
         let m = rsa::BigUint::from_bytes_be(data);
-        let n = &self.p * &self.q;
-        m.modpow(&self.d, &n).to_bytes_be()
+        decrypt_rsa(&m, &self.p, &self.q, &self.d).to_bytes_be()
     }
 }
 
@@ -28,4 +28,14 @@ pub(crate) fn get_rsa_key(data: &[u8]) -> (rsa::BigUint, rsa::BigUint, rsa::BigU
     let (d, data) = get_mpi(data);
     let (u, _) = get_mpi(data);
     (p, q, d, u)
+}
+
+pub(crate) fn decrypt_rsa(
+    m: &rsa::BigUint,
+    p: &rsa::BigUint,
+    q: &rsa::BigUint,
+    d: &rsa::BigUint,
+) -> rsa::BigUint {
+    let n = p * q;
+    m.modpow(d, &n)
 }

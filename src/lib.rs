@@ -268,8 +268,9 @@ impl Client {
         };
 
         let sid = {
-            let sid = privk.decrypt(csid.as_slice());
-            BASE64_URL_SAFE_NO_PAD.encode(&sid[..43])
+            let (m, _) = utils::rsa::get_mpi(&csid);
+            let sid = utils::rsa::decrypt_rsa(&m, &privk.p, &privk.q, &privk.d);
+            BASE64_URL_SAFE_NO_PAD.encode(&sid.to_bytes_be()[..43])
         };
 
         self.state.session = Some(Secret::new(UserSession {
