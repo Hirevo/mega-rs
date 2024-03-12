@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+### Fixed
+
+### Removed
+
+[0.7.1] - 2024-03-12
+--------------------
+
+### Added
+
+### Changed
+
 - Logs are now available using the `tracing` crate.
 
 ### Fixed
