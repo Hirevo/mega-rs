@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+### Removed
+
+[0.7.2] - 2024-03-12
+--------------------
+
+### Added
+
+### Changed
+
+### Fixed
+
 - Fixed `ESID` errors
 
 ### Removed
