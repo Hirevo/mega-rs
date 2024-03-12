@@ -7,10 +7,10 @@ use futures::io::AsyncRead;
 use futures::TryStreamExt;
 use json::Value;
 use reqwest::Body;
+use secrecy::ExposeSecret;
 use tokio_util::codec::{BytesCodec, FramedRead};
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use url::Url;
-use secrecy::ExposeSecret;
 
 use crate::error::{Error, Result};
 use crate::http::HttpClient;
