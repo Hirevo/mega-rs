@@ -1,6 +1,6 @@
 [package]
 name = "mega"
-version = "0.7.2"
+version = "0.7.3"
 edition = "2021"
 authors = ["Nicolas Polomack <nicolas@polomack.eu>"]
 description = "An API client library for interacting with MEGA"
