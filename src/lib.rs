@@ -263,12 +263,12 @@ impl Client {
         let privk = {
             let mut privk = BASE64_URL_SAFE_NO_PAD.decode(&response.privk)?;
             utils::decrypt_ebc_in_place(&key, &mut privk);
-            let (p, q, d, u) = utils::rsa::get_rsa_key(&privk);
+            let (p, q, d, u) = utils::rsa::get_rsa_key(&privk)?;
             RsaPrivateKey { p, q, d, u }
         };
 
         let sid = {
-            let (m, _) = utils::rsa::get_mpi(&csid);
+            let (m, _) = utils::rsa::get_mpi(&csid)?;
             let sid = utils::rsa::decrypt_rsa(&m, &privk.p, &privk.q, &privk.d);
             BASE64_URL_SAFE_NO_PAD.encode(&sid.to_bytes_be()[..43])
         };
@@ -341,7 +341,7 @@ impl Client {
         let privk = {
             let mut privk = BASE64_URL_SAFE_NO_PAD.decode(&response.privk)?;
             utils::decrypt_ebc_in_place(&key, &mut privk);
-            let (p, q, d, u) = utils::rsa::get_rsa_key(&privk);
+            let (p, q, d, u) = utils::rsa::get_rsa_key(&privk)?;
             RsaPrivateKey { p, q, d, u }
         };
 

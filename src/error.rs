@@ -50,6 +50,9 @@ pub enum Error {
         /// The encountered login version.
         version: i32,
     },
+    /// Invalid RSA private key format.
+    #[error("invalid RSA private key format")]
+    InvalidRsaPrivateKeyFormat,
     /// Failed condensed MAC verification.
     #[error("condensed MAC mismatch")]
     CondensedMacMismatch,
