@@ -11,9 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `Error::InvalidRsaPrivateKeyFormat` variant.
+
 ### Changed
 
 ### Fixed
+
+- Fixed panic due to unexpected RSA private key format (eg. during login ceremony).
 
 ### Removed
 
