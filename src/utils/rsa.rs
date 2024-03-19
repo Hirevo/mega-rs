@@ -30,7 +30,9 @@ pub(crate) fn get_mpi(data: &[u8]) -> Result<(rsa::BigUint, &[u8])> {
     Ok((rsa::BigUint::from_bytes_be(head), tail))
 }
 
-pub(crate) fn get_rsa_key(data: &[u8]) -> Result<(rsa::BigUint, rsa::BigUint, rsa::BigUint, rsa::BigUint)> {
+pub(crate) fn get_rsa_key(
+    data: &[u8],
+) -> Result<(rsa::BigUint, rsa::BigUint, rsa::BigUint, rsa::BigUint)> {
     let (p, data) = get_mpi(data)?;
     let (q, data) = get_mpi(data)?;
     let (d, data) = get_mpi(data)?;
