@@ -24,20 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.7.2] - 2024-03-12
 --------------------
 
-### Added
-
-### Changed
-
 ### Fixed
 
 - Fixed `ESID` errors
 
-### Removed
-
 [0.7.1] - 2024-03-12
 --------------------
-
-### Added
 
 ### Changed
 
@@ -46,8 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed panic with RSA-encrypted nodes (which happens when nodes are shared with contacts or uploaded from other users).
-
-### Removed
 
 [0.7.0] - 2023-06-17
 --------------------
