@@ -370,18 +370,18 @@ pub struct UserInfoResponse {
     pub s: i32,
     #[serde(rename = "email")]
     pub email: String,
-    #[serde(rename = "firstname")]
+    #[serde(rename = "firstname", default)]
     pub firstname: String,
-    #[serde(rename = "lastname")]
+    #[serde(rename = "lastname", default)]
     pub lastname: String,
     #[serde(rename = "country")]
-    pub country: String,
+    pub country: Option<String>,
     #[serde(rename = "birthday")]
-    pub birthday: String,
+    pub birthday: Option<String>,
     #[serde(rename = "birthmonth")]
-    pub birthmonth: String,
+    pub birthmonth: Option<String>,
     #[serde(rename = "birthyear")]
-    pub birthyear: String,
+    pub birthyear: Option<String>,
     #[serde(rename = "name")]
     pub name: String,
     #[serde(rename = "k")]

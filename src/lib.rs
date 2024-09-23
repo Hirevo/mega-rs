@@ -424,25 +424,39 @@ impl Client {
                 String::from_utf8(decoded)?
             },
             email: response.email.clone(),
-            country_code: {
-                let decoded = BASE64_URL_SAFE_NO_PAD.decode(&response.country)?;
-                String::from_utf8(decoded)?
+            country_code: 'result: {
+                let Some(country) = &response.country else {
+                    break 'result None;
+                };
+                let decoded = BASE64_URL_SAFE_NO_PAD.decode(&country)?;
+                let country = String::from_utf8(decoded)?;
+                Some(country)
             },
-            birth_date: {
-                let day: u32 = {
-                    let decoded = BASE64_URL_SAFE_NO_PAD.decode(&response.birthday)?;
-                    String::from_utf8(decoded)?.parse()?
+            birth_date: 'result: {
+                let Some(day) = &response.birthday else {
+                    break 'result None;
                 };
-                let month: u32 = {
-                    let decoded = BASE64_URL_SAFE_NO_PAD.decode(&response.birthmonth)?;
-                    String::from_utf8(decoded)?.parse()?
+                let Some(month) = &response.birthmonth else {
+                    break 'result None;
                 };
-                let year: i32 = {
-                    let decoded = BASE64_URL_SAFE_NO_PAD.decode(&response.birthyear)?;
-                    String::from_utf8(decoded)?.parse()?
+                let Some(year) = &response.birthyear else {
+                    break 'result None;
                 };
 
-                NaiveDate::from_ymd_opt(year, month, day).unwrap_or_default()
+                let day: u32 = {
+                    let decoded = BASE64_URL_SAFE_NO_PAD.decode(&day)?;
+                    String::from_utf8(decoded)?.parse::<u32>()?
+                };
+                let month: u32 = {
+                    let decoded = BASE64_URL_SAFE_NO_PAD.decode(&month)?;
+                    String::from_utf8(decoded)?.parse::<u32>()?
+                };
+                let year: i32 = {
+                    let decoded = BASE64_URL_SAFE_NO_PAD.decode(&year)?;
+                    String::from_utf8(decoded)?.parse::<i32>()?
+                };
+
+                NaiveDate::from_ymd_opt(year, month, day)
             },
         })
     }
@@ -2744,7 +2758,7 @@ pub struct UserInfo {
     /// The main email of the user.
     pub email: String,
     /// The birth date of the user.
-    pub birth_date: NaiveDate,
+    pub birth_date: Option<NaiveDate>,
     /// The country code of the user.
-    pub country_code: String,
+    pub country_code: Option<String>,
 }
