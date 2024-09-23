@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+[0.7.4] - 2024-09-24
+--------------------
+
+### Fixed
+
+- Fixed deserialization errors in `Client::get_current_user_info` for incomplete user profiles (missing country, missing birth date, or missing firstname/lastname).
+
 [0.7.3] - 2024-03-19
 --------------------
 
