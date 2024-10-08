@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::io::AsyncRead;
-use secrecy::{DebugSecret, Secret};
+use secrecy::SecretBox;
 use url::Url;
 use zeroize::Zeroize;
 
@@ -30,8 +30,6 @@ pub struct UserSession {
     pub(crate) user_handle: String,
 }
 
-impl DebugSecret for UserSession {}
-
 /// Stores the data representing the client's state.
 #[derive(Debug)]
 pub struct ClientState {
@@ -53,7 +51,7 @@ pub struct ClientState {
     /// The request counter, for idempotency.
     pub(crate) id_counter: AtomicU64,
     /// The user's session.
-    pub(crate) session: Option<Secret<UserSession>>,
+    pub(crate) session: Option<SecretBox<UserSession>>,
 }
 
 #[async_trait]

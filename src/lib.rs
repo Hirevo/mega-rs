@@ -12,7 +12,7 @@ use cipher::{BlockDecryptMut, BlockEncrypt, BlockEncryptMut, KeyInit, KeyIvInit,
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use hmac::{Hmac, Mac};
 use pbkdf2::pbkdf2_hmac_array;
-use secrecy::{ExposeSecret, Secret};
+use secrecy::{ExposeSecret, SecretBox};
 use sha2::{Sha256, Sha512};
 use static_assertions::assert_impl_all;
 use url::Url;
@@ -29,7 +29,6 @@ pub use crate::error::{Error, ErrorCode, Result};
 pub use crate::fingerprint::{compute_condensed_mac, compute_sparse_checksum};
 pub use crate::protocol::commands::{FileNode, NodeKind};
 pub use crate::sessions::SessionInfo;
-use crate::utils::rsa::RsaPrivateKey;
 pub use crate::utils::StorageQuotas;
 
 use crate::attributes::NodeAttributes;
@@ -38,6 +37,7 @@ use crate::http::{ClientState, HttpClient, UserSession};
 use crate::protocol::commands::{Request, Response, UploadAttributes};
 use crate::protocol::events::{EventBatchResponse, EventResponse, EventResponseKind};
 use crate::protocol::{FILE_KEY_SIZE, FOLDER_KEY_SIZE, USER_KEY_SIZE, USER_SID_SIZE};
+use crate::utils::rsa::RsaPrivateKey;
 
 pub(crate) const DEFAULT_API_ORIGIN: &str = "https://g.api.mega.co.nz/";
 
@@ -161,7 +161,7 @@ impl Client {
         let email = email.to_lowercase();
 
         let request = Request::PreLogin {
-            user: Secret::new(email.clone()),
+            user: email.clone().into(),
         };
         let responses = self.send_requests(&[request]).await?;
 
@@ -221,11 +221,11 @@ impl Client {
         let sek: [u8; 16] = rand::random();
 
         let request = Request::Login {
-            user: Some(Secret::new(email.clone())),
-            user_handle: Some(Secret::new(user_handle.clone())),
+            user: Some(email.clone().into()),
+            user_handle: Some(user_handle.clone().into()),
             si: None,
-            mfa: mfa.map(|it| Secret::new(it.to_string())),
-            sek: Some(Secret::new(BASE64_URL_SAFE_NO_PAD.encode(&sek))),
+            mfa: mfa.map(|it| it.to_string().into()),
+            sek: Some(BASE64_URL_SAFE_NO_PAD.encode(&sek).into()),
         };
         let responses = self.send_requests(&[request]).await?;
 
@@ -273,13 +273,13 @@ impl Client {
             BASE64_URL_SAFE_NO_PAD.encode(&sid.to_bytes_be()[..43])
         };
 
-        self.state.session = Some(Secret::new(UserSession {
+        self.state.session = Some(SecretBox::new(Box::new(UserSession {
             sid,
             key,
             sek,
             user_handle: response.u.clone(),
             privk,
-        }));
+        })));
 
         Ok(())
     }
@@ -312,7 +312,7 @@ impl Client {
             user_handle: None,
             si: None,
             mfa: None,
-            sek: Some(Secret::new(BASE64_URL_SAFE_NO_PAD.encode(&sek))),
+            sek: Some(BASE64_URL_SAFE_NO_PAD.encode(&sek).into()),
         };
         let responses = self
             .client
@@ -345,13 +345,13 @@ impl Client {
             RsaPrivateKey { p, q, d, u }
         };
 
-        self.state.session = Some(Secret::new(UserSession {
+        self.state.session = Some(SecretBox::new(Box::new(UserSession {
             sid,
             key,
             sek,
             privk,
             user_handle: response.u.clone(),
-        }));
+        })));
 
         Ok(())
     }
@@ -487,10 +487,7 @@ impl Client {
     {
         let request = Request::KillSessions {
             ko: None,
-            s: session_ids
-                .into_iter()
-                .map(|it| Secret::new(it.into()))
-                .collect(),
+            s: session_ids.into_iter().map(|it| it.into().into()).collect(),
         };
         let responses = self.send_requests(&[request]).await?;
 
@@ -531,7 +528,7 @@ impl Client {
 
         let request_1 = Request::FetchNodes { c: 1, r: None };
         let request_2 = Request::UserAttributes {
-            user_handle: Secret::new(session.user_handle.clone()),
+            user_handle: session.user_handle.clone().into(),
             attribute: "^!keys".to_string(),
             v: 1,
         };
@@ -816,7 +813,7 @@ impl Client {
                 let request = Request::Download {
                     g: 1,
                     ssl: 0,
-                    p: Some(Secret::new(node_id.to_string())),
+                    p: Some(node_id.to_string().into()),
                     n: None,
                 };
                 let responses = self.send_requests(&[request]).await?;
@@ -1137,13 +1134,13 @@ impl Client {
                     g: 1,
                     ssl: if self.state.https { 2 } else { 0 },
                     n: None,
-                    p: Some(Secret::new(node.handle.clone())),
+                    p: Some(node.handle.clone().into()),
                 }
             } else {
                 Request::Download {
                     g: 1,
                     ssl: if self.state.https { 2 } else { 0 },
-                    n: Some(Secret::new(node.handle.clone())),
+                    n: Some(node.handle.clone().into()),
                     p: None,
                 }
             };
@@ -1156,7 +1153,7 @@ impl Client {
                 g: 1,
                 ssl: if self.state.https { 2 } else { 0 },
                 p: None,
-                n: Some(Secret::new(node.handle.clone())),
+                n: Some(node.handle.clone().into()),
             };
 
             self.send_requests(&[request]).await?
@@ -1388,7 +1385,7 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::UploadComplete {
-            t: Secret::new(parent.handle.clone()),
+            t: parent.handle.clone().into(),
             n: [attrs],
             i: idempotence_id,
         };
@@ -1517,7 +1514,7 @@ impl Client {
         reader: R,
     ) -> Result<()> {
         let request = Request::UploadFileAttributes {
-            h: Some(Secret::new(node.handle.clone())),
+            h: Some(node.handle.clone().into()),
             fah: None,
             s: Some(size),
             ssl: if self.state.https { 2 } else { 0 },
@@ -1574,7 +1571,7 @@ impl Client {
         let (_, fah) = futures::try_join!(fut_1, fut_2)?;
 
         let request = Request::PutFileAttributes {
-            n: Secret::new(node.handle.clone()),
+            n: node.handle.clone().into(),
             fa: format!("{0}*{fah}", u8::from(kind)),
         };
         let responses = self.send_requests(&[request]).await?;
@@ -1652,7 +1649,7 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::UploadComplete {
-            t: Secret::new(parent.handle.clone()),
+            t: parent.handle.clone().into(),
             n: [attrs],
             i: idempotence_id,
         };
@@ -1696,7 +1693,7 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::SetFileAttributes {
-            n: Secret::new(node.handle.clone()),
+            n: node.handle.clone().into(),
             key: None,
             attr: attributes_buffer,
             i: idempotence_id,
@@ -1722,8 +1719,8 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::Move {
-            n: Secret::new(node.handle.clone()),
-            t: Secret::new(parent.handle.clone()),
+            n: node.handle.clone().into(),
+            t: parent.handle.clone().into(),
             i: idempotence_id,
         };
 
@@ -1747,7 +1744,7 @@ impl Client {
         let idempotence_id = utils::random_string(10);
 
         let request = Request::Delete {
-            n: Secret::new(node.handle.clone()),
+            n: node.handle.clone().into(),
             i: idempotence_id,
         };
 
