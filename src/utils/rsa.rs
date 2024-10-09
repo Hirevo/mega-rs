@@ -16,7 +16,7 @@ impl RsaPrivateKey {
         let (q, data) = get_mpi(data)?;
         let (d, data) = get_mpi(data)?;
         let (u, _) = get_mpi(data)?;
-        Ok(RsaPrivateKey {
+        Ok(Self {
             p: rsa::BigUint::from_bytes_be(p),
             q: rsa::BigUint::from_bytes_be(q),
             d: rsa::BigUint::from_bytes_be(d),
