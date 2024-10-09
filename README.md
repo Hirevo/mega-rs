@@ -54,7 +54,6 @@ Features
 - [x] Uploading nodes
 - [x] Creating folders
 - [x] Renaming, moving and deleting nodes
-- [ ] Chunked file downloads (downloading/uploading multiple chunks in parallel)
 - [x] Timeout support
 - [x] Retries (exponential-backoff) support
 - [x] Downloading thumbnails and preview images
