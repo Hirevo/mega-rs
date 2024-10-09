@@ -263,14 +263,13 @@ impl Client {
         let privk = {
             let mut privk = BASE64_URL_SAFE_NO_PAD.decode(&response.privk)?;
             utils::decrypt_ebc_in_place(&key, &mut privk);
-            let (p, q, d, u) = utils::rsa::get_rsa_key(&privk)?;
-            RsaPrivateKey { p, q, d, u }
+            RsaPrivateKey::from_mpi_bytes(&privk)?
         };
 
         let sid = {
             let (m, _) = utils::rsa::get_mpi(&csid)?;
-            let sid = utils::rsa::decrypt_rsa(&m, &privk.p, &privk.q, &privk.d);
-            BASE64_URL_SAFE_NO_PAD.encode(&sid.to_bytes_be()[..43])
+            let sid = privk.decrypt(m);
+            BASE64_URL_SAFE_NO_PAD.encode(&sid[..43])
         };
 
         self.state.session = Some(SecretBox::new(Box::new(UserSession {
@@ -341,8 +340,7 @@ impl Client {
         let privk = {
             let mut privk = BASE64_URL_SAFE_NO_PAD.decode(&response.privk)?;
             utils::decrypt_ebc_in_place(&key, &mut privk);
-            let (p, q, d, u) = utils::rsa::get_rsa_key(&privk)?;
-            RsaPrivateKey { p, q, d, u }
+            RsaPrivateKey::from_mpi_bytes(&privk)?
         };
 
         self.state.session = Some(SecretBox::new(Box::new(UserSession {
@@ -581,9 +579,15 @@ impl Client {
 
                         if file_key.len() >= 44 {
                             // Keys bigger than this size are using RSA instead of AES.
-                            // We don't support this as of right now.
-                            // todo!();
-                            return None;
+                            let data = BASE64_URL_SAFE_NO_PAD.decode(file_key).ok()?;
+                            let (encrypted, _) = utils::rsa::get_mpi(&data).ok()?;
+                            let mut decrypted = session.privk.decrypt(encrypted);
+                            if file.kind.is_file() {
+                                decrypted.truncate(FILE_KEY_SIZE);
+                            } else {
+                                decrypted.truncate(FOLDER_KEY_SIZE);
+                            }
+                            return Some(decrypted);
                         }
 
                         let mut file_key = BASE64_URL_SAFE_NO_PAD.decode(file_key).ok()?;
@@ -1815,6 +1819,13 @@ impl Client {
 
     /// Retrieves MEGA events, if any are currently available (it does not wait for new events to come in).
     pub async fn poll_events(&self, nodes: &Nodes) -> Result<Option<EventBatch>> {
+        let session = self
+            .state
+            .session
+            .as_ref()
+            .ok_or(Error::MissingUserSession)?
+            .expose_secret();
+
         let EventBatchResponse::Ready(response) = self.request_events(&nodes.event_cursor).await?
         else {
             return Ok(None);
@@ -1834,9 +1845,7 @@ impl Client {
                         .nodes
                         .files
                         .into_iter()
-                        .filter_map(|file| {
-                            construct_event_node(&self.state, nodes, file).transpose()
-                        })
+                        .filter_map(|file| construct_event_node(&session, nodes, file).transpose())
                         .collect::<Result<_, _>>()?;
 
                     events.push(Event::NodeCreated { nodes });
@@ -1889,6 +1898,13 @@ impl Client {
 
     /// Retrieves MEGA events, or efficiently waits for new ones if none are currently available.
     pub async fn wait_events(&self, nodes: &Nodes) -> Result<EventBatch> {
+        let session = self
+            .state
+            .session
+            .as_ref()
+            .ok_or(Error::MissingUserSession)?
+            .expose_secret();
+
         let response = loop {
             let response = self.request_events(&nodes.event_cursor).await?;
             match response {
@@ -1916,9 +1932,7 @@ impl Client {
                         .nodes
                         .files
                         .into_iter()
-                        .filter_map(|file| {
-                            construct_event_node(&self.state, nodes, file).transpose()
-                        })
+                        .filter_map(|file| construct_event_node(&session, nodes, file).transpose())
                         .collect::<Result<_, _>>()?;
 
                     events.push(Event::NodeCreated { nodes });
@@ -1971,7 +1985,7 @@ impl Client {
 }
 
 fn construct_event_node(
-    state: &ClientState,
+    session: &UserSession,
     nodes: &Nodes,
     file: FileNode,
 ) -> Result<Option<EventNode>> {
@@ -1999,8 +2013,15 @@ fn construct_event_node(
 
                 if file_key.len() >= 44 {
                     // Keys bigger than this size are using RSA instead of AES.
-                    // We don't support this as of right now.
-                    todo!();
+                    let data = BASE64_URL_SAFE_NO_PAD.decode(file_key).ok()?;
+                    let (encrypted, _) = utils::rsa::get_mpi(&data).ok()?;
+                    let mut decrypted = session.privk.decrypt(encrypted);
+                    if file.kind.is_file() {
+                        decrypted.truncate(FILE_KEY_SIZE);
+                    } else {
+                        decrypted.truncate(FOLDER_KEY_SIZE);
+                    }
+                    return Some(decrypted);
                 }
 
                 let mut file_key = BASE64_URL_SAFE_NO_PAD.decode(file_key).ok()?;
@@ -2033,11 +2054,9 @@ fn construct_event_node(
                     utils::decrypt_ebc_in_place(node.aes_key(), &mut file_key);
                     Some(file_key)
                 } else {
-                    let session = state.session.as_ref()?;
-
-                    if file_user == session.expose_secret().user_handle {
+                    if file_user == session.user_handle {
                         // regular owned file or folder
-                        utils::decrypt_ebc_in_place(&session.expose_secret().key, &mut file_key);
+                        utils::decrypt_ebc_in_place(&session.key, &mut file_key);
                         return Some(file_key);
                     }
 

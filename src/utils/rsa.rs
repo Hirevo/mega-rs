@@ -11,14 +11,27 @@ pub struct RsaPrivateKey {
 }
 
 impl RsaPrivateKey {
-    #[allow(dead_code)]
+    pub fn from_mpi_bytes(data: &[u8]) -> Result<Self> {
+        let (p, data) = get_mpi(data)?;
+        let (q, data) = get_mpi(data)?;
+        let (d, data) = get_mpi(data)?;
+        let (u, _) = get_mpi(data)?;
+        Ok(RsaPrivateKey {
+            p: rsa::BigUint::from_bytes_be(p),
+            q: rsa::BigUint::from_bytes_be(q),
+            d: rsa::BigUint::from_bytes_be(d),
+            u: rsa::BigUint::from_bytes_be(u),
+        })
+    }
+
     pub fn decrypt(&self, data: &[u8]) -> Vec<u8> {
         let m = rsa::BigUint::from_bytes_be(data);
         decrypt_rsa(&m, &self.p, &self.q, &self.d).to_bytes_be()
     }
 }
 
-pub(crate) fn get_mpi(data: &[u8]) -> Result<(rsa::BigUint, &[u8])> {
+/// Extracts the bytes (in BE order) of the MPI-formatted number, along with the rest of the data.
+pub(crate) fn get_mpi(data: &[u8]) -> Result<(&[u8], &[u8])> {
     let &[fst, snd, ref data @ ..] = data else {
         return Err(Error::InvalidRsaPrivateKeyFormat);
     };
@@ -26,18 +39,7 @@ pub(crate) fn get_mpi(data: &[u8]) -> Result<(rsa::BigUint, &[u8])> {
     if len > data.len() {
         return Err(Error::InvalidRsaPrivateKeyFormat);
     }
-    let (head, tail) = data.split_at(len);
-    Ok((rsa::BigUint::from_bytes_be(head), tail))
-}
-
-pub(crate) fn get_rsa_key(
-    data: &[u8],
-) -> Result<(rsa::BigUint, rsa::BigUint, rsa::BigUint, rsa::BigUint)> {
-    let (p, data) = get_mpi(data)?;
-    let (q, data) = get_mpi(data)?;
-    let (d, data) = get_mpi(data)?;
-    let (u, _) = get_mpi(data)?;
-    Ok((p, q, d, u))
+    Ok(data.split_at(len))
 }
 
 pub(crate) fn decrypt_rsa(
